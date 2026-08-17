@@ -43,11 +43,13 @@ export const registerAuditor = createServerFn({ method: "POST" })
     });
 
     if (error || !created.user) {
-      const message = error?.message?.includes("already")
-        ? "Un compte existe déjà avec cet email."
-        : "La création du compte auditeur a échoué.";
-      return { ok: false as const, error: message };
-    }
+  console.error("ERREUR SUPABASE CREATE USER:", error);
+
+  return {
+    ok: false as const,
+    error: error?.message ?? "La création du compte auditeur a échoué.",
+  };
+}
 
     const userId = created.user.id;
 

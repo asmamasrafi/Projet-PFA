@@ -238,7 +238,7 @@ function Index() {
                 <span className="text-primary">5 minutes</span>
               </h1>
               <p
-                className="rise mx-auto mt-6 max-w-xl text-base text-muted-foreground sm:text-lg lg:mx-0"
+                className="rise mx-auto mt-6 max-w-xl text-sm text-muted-foreground sm:text-base lg:mx-0"
                 style={{ animationDelay: "160ms" }}
               >
                 Un outil d'auto-évaluation interactif, sans jargon technique, conçu pour protéger le
