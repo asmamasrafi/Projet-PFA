@@ -661,6 +661,13 @@ function EspacePage() {
   const alertSummary = alertCount === 0
     ? "Aucun point critique à traiter"
     : `${reportRecommendations.length} recommandation${reportRecommendations.length > 1 ? "s" : ""}, ${criticalDomains} domaine${criticalDomains > 1 ? "s" : ""} faible${criticalDomains > 1 ? "s" : ""}`;
+  const profileFields = [companyName, companySector, companySize, companyRegion, email];
+  const profileCompletion = Math.round(
+    (profileFields.filter((field) => Boolean(field?.trim())).length / profileFields.length) * 100,
+  );
+  const pmeStatus = latestAudit?.status ?? (profileCompletion === 100 ? "Prêt pour un audit" : "Profil à compléter");
+  const pmeStatusIsReady =
+    profileCompletion === 100 && (!latestAudit || latestAudit.status === "Validé");
   const weakestDomains = [...domains].sort((left, right) => left.score - right.score).slice(0, 3);
   const todayLabel = new Intl.DateTimeFormat("fr-FR", {
     day: "numeric",
@@ -789,15 +796,41 @@ function EspacePage() {
   }
 
   async function generateReport() {
+    const submittedAt = new Date().toISOString();
     if (auditId) {
       await supabase
         .from("audits")
         .update({
           status: "submitted",
           score: scorePercent,
-          submitted_at: new Date().toISOString(),
+          submitted_at: submittedAt,
         })
         .eq("id", auditId);
+
+      setAuditHistory((previous) => {
+        const existing = previous.some((audit) => audit.id === auditId);
+        if (existing) {
+          return previous.map((audit) =>
+            audit.id === auditId ? { ...audit, score: scorePercent, status: "Validé" } : audit,
+          );
+        }
+        return [
+          {
+            id: auditId,
+            name: "Diagnostic cybersécurité PME",
+            date: new Intl.DateTimeFormat("fr-FR", {
+              day: "2-digit",
+              month: "long",
+              year: "numeric",
+            }).format(new Date(submittedAt)),
+            score: scorePercent,
+            status: "Validé",
+            scope: "Diagnostic cybersécurité",
+          },
+          ...previous,
+        ];
+      });
+      setDomains(getCategoryScores(questions, answers));
     }
     setReportGenerated(true);
   }
@@ -999,13 +1032,19 @@ function EspacePage() {
                 <UserCircle2 className="h-6 w-6" />
               </div>
               <div>
-                <p className="text-sm font-semibold text-slate-900">Entreprise</p>
-                <p className="text-xs text-slate-500">ABY SAS</p>
+                <p className="text-sm font-semibold text-slate-900">{companyName || "Entreprise"}</p>
+                <p className="text-xs text-slate-500">{companySector || "Profil PME"}</p>
               </div>
             </div>
             <p className="mt-3 text-sm text-slate-600">{email ?? "Compte connecté"}</p>
-            <div className="mt-3 inline-flex items-center rounded-full bg-emerald-100 px-2.5 py-1 text-[11px] font-medium text-emerald-700">
-              Sécurité active
+            <div
+              className={`mt-3 inline-flex items-center rounded-full px-2.5 py-1 text-[11px] font-medium ${
+                pmeStatusIsReady
+                  ? "bg-emerald-100 text-emerald-700"
+                  : "bg-amber-100 text-amber-700"
+              }`}
+            >
+              {pmeStatus}
             </div>
           </div>
 
@@ -1316,28 +1355,34 @@ function EspacePage() {
                   <div className="mt-6 rounded-2xl bg-primary-soft p-4">
                     <div className="flex items-center justify-between">
                       <span className="text-sm font-medium text-slate-700">Profil complet</span>
-                      <span className="text-sm font-semibold text-primary">92%</span>
+                      <span className="text-sm font-semibold text-primary">{profileCompletion}%</span>
                     </div>
                     <div className="mt-3 h-2.5 rounded-full bg-white">
                       <div
                         className="h-2.5 rounded-full bg-gradient-to-r from-primary to-cyan-500"
-                        style={{ width: "92%" }}
+                        style={{ width: `${profileCompletion}%` }}
                       />
                     </div>
                   </div>
 
                   <div className="mt-6 space-y-3 text-sm text-slate-600">
                     <div className="flex items-center justify-between rounded-2xl border border-slate-200 p-3">
-                      <span>Documentation sécurité</span>
-                      <span className="font-semibold text-emerald-600">OK</span>
+                      <span>Informations de l’entreprise</span>
+                      <span className={`font-semibold ${profileCompletion === 100 ? "text-emerald-600" : "text-amber-600"}`}>
+                        {profileCompletion === 100 ? "OK" : "À compléter"}
+                      </span>
                     </div>
                     <div className="flex items-center justify-between rounded-2xl border border-slate-200 p-3">
-                      <span>Autorisations / rôles</span>
-                      <span className="font-semibold text-emerald-600">OK</span>
+                      <span>Questionnaire d’audit</span>
+                      <span className={`font-semibold ${answeredCount === totalQuestions ? "text-emerald-600" : "text-amber-600"}`}>
+                        {answeredCount === totalQuestions ? "Terminé" : `${answeredCount}/${totalQuestions}`}
+                      </span>
                     </div>
                     <div className="flex items-center justify-between rounded-2xl border border-slate-200 p-3">
-                      <span>Plan d’action</span>
-                      <span className="font-semibold text-amber-600">En cours</span>
+                      <span>Recommandations</span>
+                      <span className={`font-semibold ${alertCount === 0 ? "text-emerald-600" : "text-amber-600"}`}>
+                        {alertCount === 0 ? "À jour" : `${alertCount} à traiter`}
+                      </span>
                     </div>
                   </div>
                 </div>
