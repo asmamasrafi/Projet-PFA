@@ -1,5 +1,6 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
+import { jsPDF } from "jspdf";
 import type { LucideIcon } from "lucide-react";
 import {
   AlertTriangle,
@@ -26,6 +27,7 @@ import {
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { AuditorSpace } from "@/components/auditor-space";
+import { COMPANY_SIZES, REGIONS, SECTORS } from "@/lib/auth-options";
 
 const title = "Mon espace — CyberAudit PME";
 const description = "Votre espace personnel CyberAudit PME.";
@@ -34,13 +36,96 @@ type TabId = "overview" | "profile" | "settings" | "history" | "audit";
 type AuditStatus = "Validé" | "En cours" | "À revoir";
 
 type AuditRecord = {
-  id: number;
+  id: string;
   name: string;
   date: string;
-  score: number;
+  score: number | null;
   status: AuditStatus;
   scope: string;
 };
+
+type DomainRecord = {
+  name: string;
+  score: number;
+};
+
+const scoredQuestionCount = 18;
+const maxScore = scoredQuestionCount * 3;
+
+const recommendations: Record<number, string> = {
+  6: "Rédigez un document simple listant les règles de sécurité de base et partagez-le avec tous les employés.",
+  7: "Désignez une personne responsable de la sécurité informatique, même à temps partiel.",
+  8: "Faites l'inventaire de tout votre matériel et vos logiciels, et tenez-le à jour.",
+  9: "Prenez le temps, une fois par an, d'évaluer les risques informatiques de l'entreprise.",
+  10: "Donnez à chaque employé un compte individuel : évitez les comptes partagés.",
+  11: "Mettez en place des règles claires sur les mots de passe (complexité, renouvellement régulier).",
+  12: "Retirez systématiquement les accès informatiques d'un employé dès son départ.",
+  13: "Séparez le réseau Wi-Fi des visiteurs de celui des employés, et protégez les deux par un mot de passe.",
+  14: "Installez un antivirus à jour sur tous les postes de travail.",
+  15: "Organisez une session annuelle de sensibilisation aux risques informatiques.",
+  16: "Formez vos employés à reconnaître les emails suspects et les tentatives de phishing.",
+  17: "Contrôlez l'accès physique aux locaux où se trouvent vos ordinateurs et serveurs.",
+  18: "Restreignez l'accès aux données confidentielles (clients, RH) à un nombre limité de personnes.",
+  19: "Mettez en place une sauvegarde régulière de vos données importantes.",
+  20: "Conservez une copie de vos sauvegardes ailleurs que sur le poste ou serveur principal.",
+  21: "Rédigez une procédure simple expliquant quoi faire en cas d'incident informatique.",
+  22: "Préparez un plan de secours pour continuer à fonctionner en cas de panne majeure.",
+  23: "Vérifiez que votre entreprise respecte la loi 09-08 sur la protection des données personnelles.",
+};
+
+function getMaturityLevel(score: number, scoreMax = maxScore) {
+  const ratio = scoreMax ? score / scoreMax : 0;
+  if (ratio <= 0.25) return "Niveau 1 - Initial";
+  if (ratio <= 0.5) return "Niveau 2 - Basique";
+  if (ratio <= 0.75) return "Niveau 3 - Intermédiaire";
+  return "Niveau 4 - Avancé";
+}
+
+function getScorePercent(score: number) {
+  return Math.round((score / maxScore) * 100);
+}
+
+function getRecommendations(questions: AuditQuestion[], answers: Record<number, string>) {
+  const candidates = questions.flatMap((question, index) => {
+    if (!question.noted) return [];
+    const answer = answers[index];
+    if (!answer) return [];
+    const level = question.options.indexOf(answer);
+    const recommendation = recommendations[index];
+    return level >= 0 && recommendation
+      ? [{ category: question.category, question: question.question, recommendation, level }]
+      : [];
+  });
+
+  candidates.sort((left, right) => left.level - right.level);
+  const priorityCandidates = candidates.filter((candidate) => candidate.level < 3);
+  const selected = priorityCandidates.slice(0, 5);
+
+  if (selected.length < 3) {
+    selected.push(...candidates.filter((candidate) => !selected.includes(candidate)).slice(0, 3 - selected.length));
+  }
+
+  return selected.slice(0, 5);
+}
+
+function getCategoryScores(questions: AuditQuestion[], answers: Record<number, string>) {
+  const scoresByCategory = new Map<string, number[]>();
+
+  questions.forEach((question, index) => {
+    if (!question.noted) return;
+    const answer = answers[index];
+    const score = answer ? question.options.indexOf(answer) : -1;
+    if (score < 0) return;
+    const scores = scoresByCategory.get(question.category) ?? [];
+    scores.push(score);
+    scoresByCategory.set(question.category, scores);
+  });
+
+  return Array.from(scoresByCategory.entries()).map(([name, scores]) => ({
+    name,
+    score: Math.round((scores.reduce((total, score) => total + score, 0) / (scores.length * 3)) * 100),
+  }));
+}
 
 const navItems: { id: TabId; label: string; icon: LucideIcon }[] = [
   { id: "overview", label: "Dashboard", icon: LayoutDashboard },
@@ -50,86 +135,22 @@ const navItems: { id: TabId; label: string; icon: LucideIcon }[] = [
   { id: "audit", label: "Audit", icon: ShieldCheck },
 ];
 
-const overviewStats = [
-  { label: "Score global", value: "82%", delta: "+8 pts", color: "bg-emerald-500", icon: Target },
-  {
-    label: "Audits réalisés",
-    value: "14",
-    delta: "2 ce mois",
-    color: "bg-blue-500",
-    icon: FileText,
-  },
-  {
-    label: "Risques critiques",
-    value: "03",
-    delta: "-2 depuis le dernier audit",
-    color: "bg-amber-500",
-    icon: AlertTriangle,
-  },
-  {
-    label: "Plan d’action",
-    value: "89%",
-    delta: "7 actions en cours",
-    color: "bg-violet-500",
-    icon: TrendingUp,
-  },
-];
+const categoryLabels: Record<string, string> = {
+  "Contexte de l'entreprise": "Contexte et exposition aux risques",
+  "Contexte et exposition aux risques": "Contexte et exposition aux risques",
+  "Gouvernance et organisation": "Gouvernance et organisation",
+  "Accès, mots de passe et réseau": "Accès, mots de passe et réseau",
+  "Sensibilisation et sécurité humaine": "Sensibilisation et sécurité humaine",
+  "Sauvegarde, incidents et conformité": "Sauvegarde, incidents et conformité",
+};
 
-const domains = [
-  { name: "Gouvernance", score: 90 },
-  { name: "Sécurité des accès", score: 84 },
-  { name: "Sauvegarde", score: 76 },
-  { name: "Sensibilisation", score: 88 },
-  { name: "Réponse d’incident", score: 72 },
-  { name: "Données & conformité", score: 81 },
-];
-
-const auditHistory: AuditRecord[] = [
-  {
-    id: 1042,
-    name: "Audit de conformité",
-    date: "12 mai 2026",
-    score: 86,
-    status: "Validé",
-    scope: "Risque / Gouvernance",
-  },
-  {
-    id: 1039,
-    name: "Maturité IAM",
-    date: "26 avril 2026",
-    score: 74,
-    status: "En cours",
-    scope: "Accès / Identité",
-  },
-  {
-    id: 1031,
-    name: "Audit sécurité réseau",
-    date: "18 mars 2026",
-    score: 68,
-    status: "À revoir",
-    scope: "Infrastructure",
-  },
-  {
-    id: 1025,
-    name: "Sensibilisation et phishing",
-    date: "05 février 2026",
-    score: 91,
-    status: "Validé",
-    scope: "RH / Culture",
-  },
-  {
-    id: 1018,
-    name: "Plan de continuité",
-    date: "12 janvier 2026",
-    score: 78,
-    status: "Validé",
-    scope: "Récup / Continuité",
-  },
-];
+function normalizeCategory(category: string) {
+  return categoryLabels[category] ?? category;
+}
 
 const auditAxes = [
   {
-    name: "Contexte de l'entreprise",
+    name: "Contexte et exposition aux risques",
     noted: false,
     questions: [
       [
@@ -190,7 +211,7 @@ const auditAxes = [
         ],
       ],
       [
-        "Réfléchissez-vous régulièrement aux risques informatiques qui menacent votre entreprise (virus, panne, vol) ?",
+        "Réfléchissez-vous régulièrement aux risques informatiques qui menacent votre entreprise (virus, panne, vol de matériel) ?",
         [
           "Jamais : ces risques ne sont pas évalués.",
           "De temps en temps, mais sans méthode particulière ni suivi.",
@@ -388,6 +409,15 @@ function EspacePage() {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
   const [email, setEmail] = useState<string | null>(null);
+  const [profileName, setProfileName] = useState("");
+  const [companyName, setCompanyName] = useState("");
+  const [companySector, setCompanySector] = useState("");
+  const [companySize, setCompanySize] = useState("");
+  const [companyRegion, setCompanyRegion] = useState("");
+  const [alertFrequency, setAlertFrequency] = useState("hebdomadaire");
+  const [securityZone, setSecurityZone] = useState("maroc");
+  const [settingsSaving, setSettingsSaving] = useState(false);
+  const [settingsMessage, setSettingsMessage] = useState<string | null>(null);
   const [userId, setUserId] = useState<string | null>(null);
   const [role, setRole] = useState<"pme" | "auditor" | "admin" | "unknown">("unknown");
   const [activeTab, setActiveTab] = useState<TabId>("overview");
@@ -395,6 +425,8 @@ function EspacePage() {
   const [currentQuestion, setCurrentQuestion] = useState(0);
   const [answers, setAnswers] = useState<Record<number, string>>({});
   const [questions, setQuestions] = useState<AuditQuestion[]>(fallbackQuestions);
+  const [auditHistory, setAuditHistory] = useState<AuditRecord[]>([]);
+  const [domains, setDomains] = useState<DomainRecord[]>([]);
   const [auditId, setAuditId] = useState<string | null>(null);
   const [auditError, setAuditError] = useState<string | null>(null);
   const [reportGenerated, setReportGenerated] = useState(false);
@@ -420,8 +452,17 @@ function EspacePage() {
       try {
         const [{ data: roleRows }, { data: profile }] = await Promise.all([
           supabase.from("user_roles").select("role").eq("user_id", session.user.id),
-          supabase.from("profiles").select("account_type").eq("id", session.user.id).maybeSingle(),
+          supabase
+            .from("profiles")
+            .select("account_type, first_name, last_name, email, alert_frequency, security_zone")
+            .eq("id", session.user.id)
+            .maybeSingle(),
         ]);
+
+        setProfileName(`${profile?.first_name ?? ""} ${profile?.last_name ?? ""}`.trim());
+        setEmail(profile?.email ?? session.user.email ?? null);
+        setAlertFrequency(profile?.alert_frequency ?? "hebdomadaire");
+        setSecurityZone(profile?.security_zone ?? "maroc");
 
         const roles = (roleRows ?? []).map((row) => row.role);
         const detectedRole = roles.includes("auditor")
@@ -436,7 +477,11 @@ function EspacePage() {
 
         if (detectedRole === "pme") {
           const [{ data: company }, { data: questionRows }] = await Promise.all([
-            supabase.from("companies").select("id").eq("owner_id", session.user.id).maybeSingle(),
+            supabase
+              .from("companies")
+              .select("id, name, sector, size, region")
+              .eq("owner_id", session.user.id)
+              .maybeSingle(),
             supabase
               .from("audit_questions")
               .select("id, axis, question, options, noted, sort_order")
@@ -444,11 +489,16 @@ function EspacePage() {
               .order("sort_order", { ascending: true }),
           ]);
 
+          setCompanyName(company?.name ?? "");
+          setCompanySector(company?.sector ?? "");
+          setCompanySize(company?.size ?? "");
+          setCompanyRegion(company?.region ?? "");
+
           if (questionRows?.length) {
             setQuestions(
               questionRows.map((question) => ({
                 id: question.id,
-                category: question.axis,
+                category: normalizeCategory(question.axis),
                 noted: question.noted,
                 question: question.question,
                 options: Array.isArray(question.options)
@@ -461,6 +511,69 @@ function EspacePage() {
           }
 
           if (company) {
+            const { data: auditRows } = await supabase
+              .from("audits")
+              .select("id, title, status, score, created_at, submitted_at")
+              .eq("owner_id", session.user.id)
+              .eq("company_id", company.id)
+              .order("created_at", { ascending: false });
+
+            if (auditRows?.length) {
+              setAuditHistory(
+                auditRows.map((audit) => ({
+                  id: audit.id,
+                  name: audit.title,
+                  date: new Intl.DateTimeFormat("fr-FR", {
+                    day: "2-digit",
+                    month: "long",
+                    year: "numeric",
+                  }).format(new Date(audit.created_at)),
+                  score: audit.score,
+                  status:
+                    audit.status === "submitted" || audit.status === "completed"
+                      ? "Validé"
+                      : audit.status === "in_review"
+                        ? "À revoir"
+                        : "En cours",
+                  scope: "Diagnostic cybersécurité",
+                })),
+              );
+
+              const { data: answerRows } = await supabase
+                .from("audit_answers")
+                .select("audit_id, question_id, score")
+                .in(
+                  "audit_id",
+                  auditRows.map((audit) => audit.id),
+                );
+              const questionById = new Map(
+                (questionRows ?? []).map((question) => [question.id, question]),
+              );
+              const latestAuditId = auditRows.find(() => true)?.id;
+              const latestAnswers = (answerRows ?? []).filter(
+                (answer) => answer.audit_id === latestAuditId && answer.score !== null,
+              );
+              const categoryScores = new Map<string, number[]>();
+
+              latestAnswers.forEach((answer) => {
+                const question = questionById.get(answer.question_id);
+                if (!question || answer.score === null || !question.noted) return;
+                const scores = categoryScores.get(normalizeCategory(question.axis)) ?? [];
+                scores.push(answer.score);
+                categoryScores.set(normalizeCategory(question.axis), scores);
+              });
+
+              setDomains(
+                Array.from(categoryScores.entries()).map(([name, scores]) => ({
+                  name,
+                  score: Math.round(
+                    (scores.reduce((total, score) => total + score, 0) / (scores.length * 3)) *
+                      100,
+                  ),
+                })),
+              );
+            }
+
             const { data: draft } = await supabase
               .from("audits")
               .select("id")
@@ -521,44 +634,108 @@ function EspacePage() {
   const totalQuestions = questions.length;
   const answeredCount = Object.keys(answers).length;
 
-  const scorePercent = useMemo(() => {
+  const scorePoints = useMemo(() => {
     const scoredAnswers = Object.entries(answers).filter(
       ([questionIndex]) => questions[Number(questionIndex)]?.noted,
     );
 
     if (scoredAnswers.length === 0) return 0;
 
-    const total = scoredAnswers.reduce(
+    return scoredAnswers.reduce(
       (sum, [questionIndex, value]) =>
-        sum + questions[Number(questionIndex)].options.indexOf(value),
+        sum + (questions[Number(questionIndex)]?.options.indexOf(value) ?? 0),
       0,
     );
-    return Math.round((total / (scoredAnswers.length * 3)) * 100);
   }, [answers, questions]);
 
-  const currentQuestionData = questions[currentQuestion];
+  const scorePercent = getScorePercent(scorePoints);
+  const reportRecommendations = getRecommendations(questions, answers);
+  const diagnosticDomains = getCategoryScores(questions, answers);
+
+  const currentQuestionData = (questions[currentQuestion] ?? fallbackQuestions[0]) as AuditQuestion;
+  const latestAudit = auditHistory[0];
+  const completedAudits = auditHistory.filter((audit) => audit.status === "Validé").length;
+  const criticalDomains = domains.filter((domain) => domain.score < 50).length;
+  const inProgressAudits = auditHistory.filter((audit) => audit.status === "En cours").length;
+  const alertCount = reportRecommendations.length + criticalDomains + inProgressAudits;
+  const alertSummary = alertCount === 0
+    ? "Aucun point critique à traiter"
+    : `${reportRecommendations.length} recommandation${reportRecommendations.length > 1 ? "s" : ""}, ${criticalDomains} domaine${criticalDomains > 1 ? "s" : ""} faible${criticalDomains > 1 ? "s" : ""}`;
+  const weakestDomains = [...domains].sort((left, right) => left.score - right.score).slice(0, 3);
+  const todayLabel = new Intl.DateTimeFormat("fr-FR", {
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+  }).format(new Date());
+  const overviewStats = [
+    {
+      label: "Score global",
+      value: latestAudit?.score !== null && latestAudit?.score !== undefined
+        ? `${latestAudit.score}%`
+        : "—",
+      delta: latestAudit?.score !== null && latestAudit?.score !== undefined
+        ? getMaturityLevel(Math.round((latestAudit.score * maxScore) / 100))
+        : "Aucun audit",
+      color: "bg-emerald-500",
+      icon: Target,
+    },
+    {
+      label: "Audits réalisés",
+      value: String(completedAudits),
+      delta: `${auditHistory.length} au total`,
+      color: "bg-blue-500",
+      icon: FileText,
+    },
+    {
+      label: "Risques critiques",
+      value: String(criticalDomains).padStart(2, "0"),
+      delta: domains.length ? "Domaines sous 50%" : "En attente des réponses",
+      color: "bg-amber-500",
+      icon: AlertTriangle,
+    },
+    {
+      label: "État du dernier audit",
+      value: latestAudit?.score !== null && latestAudit?.score !== undefined
+        ? getMaturityLevel(Math.round((latestAudit.score * maxScore) / 100))
+        : "—",
+      delta: latestAudit ? latestAudit.date : "Aucune donnée",
+      color: "bg-violet-500",
+      icon: TrendingUp,
+    },
+  ];
+  const progressPercent = totalQuestions
+    ? Math.min(
+        100,
+        Math.round(
+          (answeredCount / totalQuestions) * 100,
+        ),
+      )
+    : 0;
 
   async function handleLogout() {
     await supabase.auth.signOut();
     void navigate({ to: "/" });
   }
 
-  async function handleAnswer(value: string) {
+  function handleAnswer(value: string) {
     setAnswers((prev) => ({ ...prev, [currentQuestion]: value }));
 
     const questionId = currentQuestionData.id;
     if (auditId && questionId) {
-      const { error } = await supabase.from("audit_answers").upsert(
-        {
-          audit_id: auditId,
-          question_id: questionId,
-          answer: value,
-          score: currentQuestionData.noted ? currentQuestionData.options.indexOf(value) : null,
-        },
-        { onConflict: "audit_id,question_id" },
-      );
-
-      if (error) setAuditError("La réponse n'a pas pu être enregistrée. Réessayez.");
+      void supabase
+        .from("audit_answers")
+        .upsert(
+          {
+            audit_id: auditId,
+            question_id: questionId,
+            answer: value,
+            score: currentQuestionData.noted ? currentQuestionData.options.indexOf(value) : null,
+          },
+          { onConflict: "audit_id,question_id" },
+        )
+        .then(({ error }) => {
+          if (error) setAuditError("La réponse n'a pas pu être enregistrée. Réessayez.");
+        });
     }
 
     if (currentQuestion < totalQuestions - 1) {
@@ -623,6 +800,154 @@ function EspacePage() {
         .eq("id", auditId);
     }
     setReportGenerated(true);
+  }
+
+  async function saveSettings() {
+    const trimmedCompanyName = companyName.trim();
+    if (!userId || !trimmedCompanyName) {
+      setSettingsMessage("Le nom de l'entreprise est obligatoire.");
+      return;
+    }
+    if (
+      !SECTORS.includes(companySector as (typeof SECTORS)[number]) ||
+      !COMPANY_SIZES.includes(companySize as (typeof COMPANY_SIZES)[number]) ||
+      !REGIONS.includes(companyRegion as (typeof REGIONS)[number]) ||
+      !["quotidienne", "hebdomadaire", "mensuelle"].includes(alertFrequency) ||
+      !["maroc", "afrique", "monde"].includes(securityZone)
+    ) {
+      setSettingsMessage("Sélectionnez une valeur valide pour le secteur, la taille et la région.");
+      return;
+    }
+
+    setSettingsSaving(true);
+    setSettingsMessage(null);
+    const [{ error: profileError }, { error: companyError }] = await Promise.all([
+      supabase
+        .from("profiles")
+        .update({ alert_frequency: alertFrequency, security_zone: securityZone })
+        .eq("id", userId),
+      supabase
+        .from("companies")
+        .update({
+          name: trimmedCompanyName,
+          sector: companySector,
+          size: companySize,
+          region: companyRegion,
+        })
+        .eq("owner_id", userId),
+    ]);
+
+    if (profileError || companyError) {
+      setSettingsMessage("Les paramètres n'ont pas pu être enregistrés. Réessayez.");
+    } else {
+      setCompanyName(trimmedCompanyName);
+      setSettingsMessage("Paramètres enregistrés avec succès.");
+    }
+    setSettingsSaving(false);
+  }
+
+  async function resetSettings() {
+    if (!userId) return;
+    setSettingsMessage(null);
+    const [{ data: profile }, { data: company }] = await Promise.all([
+      supabase
+        .from("profiles")
+        .select("first_name, last_name, email, alert_frequency, security_zone")
+        .eq("id", userId)
+        .maybeSingle(),
+      supabase
+        .from("companies")
+        .select("name, sector, size, region")
+        .eq("owner_id", userId)
+        .maybeSingle(),
+    ]);
+    setProfileName(`${profile?.first_name ?? ""} ${profile?.last_name ?? ""}`.trim());
+    setEmail(profile?.email ?? email);
+    setAlertFrequency(profile?.alert_frequency ?? "hebdomadaire");
+    setSecurityZone(profile?.security_zone ?? "maroc");
+    setCompanyName(company?.name ?? "");
+    setCompanySector(company?.sector ?? "");
+    setCompanySize(company?.size ?? "");
+    setCompanyRegion(company?.region ?? "");
+    setSettingsMessage("Les valeurs enregistrées ont été rechargées.");
+  }
+
+  function generateDiagnosticReport() {
+    const confirmed = window.confirm(
+      "Voulez-vous télécharger le rapport PDF de diagnostic ?",
+    );
+    if (!confirmed) {
+      return;
+    }
+
+    const document = new jsPDF({ unit: "mm", format: "a4" });
+    const pageWidth = document.internal.pageSize.getWidth();
+    const pageHeight = document.internal.pageSize.getHeight();
+    const margin = 18;
+    const contentWidth = pageWidth - margin * 2;
+    let cursorY = margin;
+
+    const addText = (text: string, size: number, options?: { bold?: boolean; color?: [number, number, number] }) => {
+      if (options?.color) document.setTextColor(...options.color);
+      else document.setTextColor(31, 41, 55);
+      document.setFont("helvetica", options?.bold ? "bold" : "normal");
+      document.setFontSize(size);
+      const lines = document.splitTextToSize(text, contentWidth) as string[];
+      const lineHeight = size * 0.45;
+
+      if (cursorY + lines.length * lineHeight > pageHeight - margin) {
+        document.addPage();
+        cursorY = margin;
+      }
+      document.text(lines, margin, cursorY);
+      cursorY += lines.length * lineHeight;
+    };
+
+    const addSectionTitle = (text: string) => {
+      cursorY += 7;
+      addText(text, 14, { bold: true, color: [15, 118, 110] });
+      cursorY += 2;
+    };
+
+    const recommendationsByCategory = reportRecommendations.reduce<Record<string, typeof reportRecommendations>>(
+      (groups, item) => {
+        groups[item.category] = [...(groups[item.category] ?? []), item];
+        return groups;
+      },
+      {},
+    );
+
+    addText("Rapport de diagnostic cybersécurité", 20, {
+      bold: true,
+      color: [15, 118, 110],
+    });
+    addText("CMRPI - Espace Maroc Cyberconfiance", 10);
+    addText(`Généré le ${todayLabel}`, 9, { color: [100, 116, 139] });
+    cursorY += 5;
+    addText(`Score global : ${scorePoints}/${maxScore} (${scorePercent}%)`, 15, { bold: true });
+    addText(`Niveau de maturité : ${getMaturityLevel(scorePoints)}`, 12, { bold: true });
+
+    addSectionTitle("Diagnostic par catégorie");
+    if (diagnosticDomains.length === 0) {
+      addText("Les scores par catégorie ne sont pas disponibles.", 10);
+    } else {
+      diagnosticDomains.forEach((domain) => {
+        addText(`${domain.name} : ${domain.score}%`, 11, { bold: true });
+      });
+    }
+
+    addSectionTitle("Recommandations");
+    if (reportRecommendations.length === 0) {
+      addText("Aucune recommandation prioritaire : les bonnes pratiques notées sont installées.", 10);
+    } else {
+      Object.entries(recommendationsByCategory).forEach(([category, items]) => {
+        addText(category, 11, { bold: true, color: [17, 94, 89] });
+        items.forEach((item) => addText(`- Niveau ${item.level}/3 : ${item.recommendation}`, 10));
+        cursorY += 2;
+      });
+    }
+
+    document.save("rapport-diagnostic-cybersecurite.pdf");
   }
 
   if (loading) {
@@ -708,14 +1033,19 @@ function EspacePage() {
             ))}
           </nav>
 
-          <div className="mt-8 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+          <button
+            type="button"
+            onClick={() => setActiveTab("audit")}
+            className="mt-8 w-full rounded-2xl border border-slate-200 bg-slate-50 p-4 text-left transition hover:border-primary/30 hover:bg-primary-soft"
+            aria-label="Voir les alertes et recommandations de l'audit"
+          >
             <div className="flex items-center gap-2 text-sm font-semibold text-slate-700">
               <Bell className="h-4 w-4 text-primary" />
               Alertes
             </div>
-            <p className="mt-3 text-2xl font-bold text-slate-900">3</p>
-            <p className="text-xs text-slate-500">Nouveaux points à traiter cette semaine</p>
-          </div>
+            <p className="mt-3 text-2xl font-bold text-slate-900">{alertCount}</p>
+            <p className="text-xs text-slate-500">{alertSummary}</p>
+          </button>
 
           <button
             type="button"
@@ -749,7 +1079,7 @@ function EspacePage() {
 
             <div className="flex flex-wrap items-center gap-3">
               <div className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600">
-                17 août 2026
+                {todayLabel}
               </div>
               <button
                 type="button"
@@ -801,12 +1131,19 @@ function EspacePage() {
                         </h2>
                       </div>
                       <div className="rounded-full bg-primary-soft px-3 py-1 text-sm font-semibold text-primary">
-                        82/100
+                        {latestAudit?.score !== null && latestAudit?.score !== undefined
+                          ? `${latestAudit.score}%`
+                          : "—"}
                       </div>
                     </div>
 
                     <div className="mt-6 space-y-4">
-                      {domains.map((domain) => (
+                      {domains.length === 0 ? (
+                        <p className="rounded-2xl bg-slate-50 p-4 text-sm text-slate-500">
+                          Les scores par domaine apparaîtront après votre premier audit.
+                        </p>
+                      ) : (
+                        domains.map((domain) => (
                         <div key={domain.name}>
                           <div className="mb-2 flex items-center justify-between text-sm">
                             <span className="font-medium text-slate-700">{domain.name}</span>
@@ -815,11 +1152,12 @@ function EspacePage() {
                           <div className="h-2.5 rounded-full bg-slate-100">
                             <div
                               className="h-2.5 rounded-full bg-gradient-to-r from-primary to-cyan-500"
-                              style={{ width: `${domain.score}%` }}
+                              style={{ width: `${Math.min(100, Math.max(0, domain.score))}%` }}
                             />
                           </div>
                         </div>
-                      ))}
+                        ))
+                      )}
                     </div>
                   </div>
 
@@ -830,35 +1168,35 @@ function EspacePage() {
                     <h2 className="mt-2 text-xl font-semibold text-slate-900">Priorités</h2>
 
                     <div className="mt-5 space-y-4">
-                      <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4">
-                        <div className="flex items-center gap-2 text-amber-700">
-                          <AlertTriangle className="h-4 w-4" />
-                          <span className="font-semibold">Priorité 1</span>
-                        </div>
-                        <p className="mt-2 text-sm text-slate-700">
-                          Renforcer les accès privilégiés et la politique MFA.
+                      {weakestDomains.length === 0 ? (
+                        <p className="rounded-2xl bg-slate-50 p-4 text-sm text-slate-500">
+                          Les priorités seront calculées après les réponses notées.
                         </p>
-                      </div>
-
-                      <div className="rounded-2xl border border-blue-200 bg-blue-50 p-4">
-                        <div className="flex items-center gap-2 text-blue-700">
-                          <Clock3 className="h-4 w-4" />
-                          <span className="font-semibold">Priorité 2</span>
-                        </div>
-                        <p className="mt-2 text-sm text-slate-700">
-                          Créer des sauvegardes et tests de restauration trimestriels.
-                        </p>
-                      </div>
-
-                      <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4">
-                        <div className="flex items-center gap-2 text-emerald-700">
-                          <CheckCircle2 className="h-4 w-4" />
-                          <span className="font-semibold">Priorité 3</span>
-                        </div>
-                        <p className="mt-2 text-sm text-slate-700">
-                          Le programme de sensibilisation est bien avancé et à consolider.
-                        </p>
-                      </div>
+                      ) : (
+                        weakestDomains.map((domain, index) => (
+                          <div
+                            key={domain.name}
+                            className={`rounded-2xl border p-4 ${
+                              domain.score < 50
+                                ? "border-amber-200 bg-amber-50"
+                                : "border-emerald-200 bg-emerald-50"
+                            }`}
+                          >
+                            <div className="flex items-center gap-2 text-slate-700">
+                              {domain.score < 50 ? (
+                                <AlertTriangle className="h-4 w-4 text-amber-700" />
+                              ) : (
+                                <CheckCircle2 className="h-4 w-4 text-emerald-700" />
+                              )}
+                              <span className="font-semibold">Priorité {index + 1}</span>
+                              <span className="ml-auto text-sm font-semibold">
+                                {domain.score}%
+                              </span>
+                            </div>
+                            <p className="mt-2 text-sm text-slate-700">{domain.name}</p>
+                          </div>
+                        ))
+                      )}
                     </div>
                   </div>
                 </section>
@@ -895,14 +1233,21 @@ function EspacePage() {
                         </tr>
                       </thead>
                       <tbody>
-                        {auditHistory.map((audit) => (
+                        {auditHistory.length === 0 ? (
+                          <tr>
+                            <td colSpan={5} className="py-6 text-center text-sm text-slate-500">
+                              Aucun audit enregistré pour le moment.
+                            </td>
+                          </tr>
+                        ) : (
+                          auditHistory.map((audit) => (
                           <tr key={audit.id} className="border-b border-slate-100 text-sm">
                             <td className="py-4 pr-4 font-medium text-slate-800">{audit.name}</td>
                             <td className="py-4 pr-4 text-slate-600">{audit.date}</td>
                             <td className="py-4 pr-4 text-slate-600">{audit.scope}</td>
                             <td className="py-4 pr-4">
                               <span className="inline-flex rounded-full bg-slate-100 px-2.5 py-1 font-semibold text-slate-700">
-                                {audit.score}%
+                                {audit.score === null ? "—" : `${audit.score}%`}
                               </span>
                             </td>
                             <td className="py-4">
@@ -919,7 +1264,8 @@ function EspacePage() {
                               </span>
                             </td>
                           </tr>
-                        ))}
+                          ))
+                        )}
                       </tbody>
                     </table>
                   </div>
@@ -940,15 +1286,15 @@ function EspacePage() {
                   <div className="mt-6 grid gap-4 sm:grid-cols-2">
                     <div className="rounded-2xl bg-slate-50 p-4">
                       <p className="text-sm text-slate-500">Raison sociale</p>
-                      <p className="mt-2 text-lg font-semibold">ABY SAS</p>
+                      <p className="mt-2 text-lg font-semibold">{companyName || "Non renseigné"}</p>
                     </div>
                     <div className="rounded-2xl bg-slate-50 p-4">
                       <p className="text-sm text-slate-500">Secteur</p>
-                      <p className="mt-2 text-lg font-semibold">Services numériques</p>
+                      <p className="mt-2 text-lg font-semibold">{companySector || "Non renseigné"}</p>
                     </div>
                     <div className="rounded-2xl bg-slate-50 p-4">
                       <p className="text-sm text-slate-500">Effectif</p>
-                      <p className="mt-2 text-lg font-semibold">42 collaborateurs</p>
+                      <p className="mt-2 text-lg font-semibold">{companySize || "Non renseigné"}</p>
                     </div>
                     <div className="rounded-2xl bg-slate-50 p-4">
                       <p className="text-sm text-slate-500">Contact</p>
@@ -1004,6 +1350,18 @@ function EspacePage() {
                   Paramètres
                 </p>
                 <h2 className="mt-2 text-2xl font-bold text-slate-900">Gestion de votre espace</h2>
+                {settingsMessage && (
+                  <p
+                    role="status"
+                    className={`mt-4 rounded-xl border px-4 py-3 text-sm ${
+                      settingsMessage.includes("succès")
+                        ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                        : "border-rose-200 bg-rose-50 text-rose-700"
+                    }`}
+                  >
+                    {settingsMessage}
+                  </p>
+                )}
 
                 <div className="mt-6 grid gap-6 lg:grid-cols-2">
                   <div className="space-y-5">
@@ -1012,7 +1370,10 @@ function EspacePage() {
                         Nom de l’entreprise
                       </span>
                       <input
-                        defaultValue="ABY SAS"
+                        value={companyName}
+                        onChange={(event) => setCompanyName(event.target.value)}
+                        maxLength={120}
+                        autoComplete="organization"
                         className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2.5 outline-none ring-0 transition focus:border-primary"
                       />
                     </label>
@@ -1021,19 +1382,58 @@ function EspacePage() {
                         Adresse e-mail
                       </span>
                       <input
-                        defaultValue={email ?? "contact@entreprise.ma"}
+                        value={email ?? ""}
+                        readOnly
+                        aria-describedby="email-settings-help"
                         className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2.5 outline-none ring-0 transition focus:border-primary"
                       />
+                      <span id="email-settings-help" className="mt-1 block text-xs text-slate-500">
+                        L’adresse de connexion se modifie depuis le parcours sécurisé du compte.
+                      </span>
+                    </label>
+                    <label className="block">
+                      <span className="mb-2 block text-sm font-medium text-slate-700">Secteur</span>
+                      <select
+                        value={companySector}
+                        onChange={(event) => setCompanySector(event.target.value)}
+                        className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2.5 outline-none transition focus:border-primary"
+                      >
+                        <option value="" disabled>Sélectionner un secteur</option>
+                        {SECTORS.map((sector) => <option key={sector} value={sector}>{sector}</option>)}
+                      </select>
                     </label>
                   </div>
 
                   <div className="space-y-5">
                     <label className="block">
+                      <span className="mb-2 block text-sm font-medium text-slate-700">Taille de l’entreprise</span>
+                      <select
+                        value={companySize}
+                        onChange={(event) => setCompanySize(event.target.value)}
+                        className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2.5 outline-none transition focus:border-primary"
+                      >
+                        <option value="" disabled>Sélectionner une taille</option>
+                        {COMPANY_SIZES.map((size) => <option key={size} value={size}>{size}</option>)}
+                      </select>
+                    </label>
+                    <label className="block">
+                      <span className="mb-2 block text-sm font-medium text-slate-700">Région</span>
+                      <select
+                        value={companyRegion}
+                        onChange={(event) => setCompanyRegion(event.target.value)}
+                        className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2.5 outline-none transition focus:border-primary"
+                      >
+                        <option value="" disabled>Sélectionner une région</option>
+                        {REGIONS.map((region) => <option key={region} value={region}>{region}</option>)}
+                      </select>
+                    </label>
+                    <label className="block">
                       <span className="mb-2 block text-sm font-medium text-slate-700">
                         Fréquence des alertes
                       </span>
                       <select
-                        defaultValue="hebdomadaire"
+                        value={alertFrequency}
+                        onChange={(event) => setAlertFrequency(event.target.value)}
                         className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2.5 outline-none transition focus:border-primary"
                       >
                         <option value="hebdomadaire">Hebdomadaire</option>
@@ -1046,7 +1446,8 @@ function EspacePage() {
                         Zone de sécurité
                       </span>
                       <select
-                        defaultValue="maroc"
+                        value={securityZone}
+                        onChange={(event) => setSecurityZone(event.target.value)}
                         className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2.5 outline-none transition focus:border-primary"
                       >
                         <option value="maroc">Maroc / Europe</option>
@@ -1060,12 +1461,15 @@ function EspacePage() {
                 <div className="mt-6 flex flex-wrap gap-3">
                   <button
                     type="button"
+                    onClick={() => void saveSettings()}
+                    disabled={settingsSaving}
                     className="rounded-2xl bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground"
                   >
-                    Enregistrer
+                    {settingsSaving ? "Enregistrement…" : "Enregistrer"}
                   </button>
                   <button
                     type="button"
+                    onClick={() => void resetSettings()}
                     className="rounded-2xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700"
                   >
                     Réinitialiser
@@ -1095,7 +1499,12 @@ function EspacePage() {
                 </div>
 
                 <div className="mt-6 space-y-4">
-                  {auditHistory.map((item) => (
+                  {auditHistory.length === 0 ? (
+                    <p className="rounded-2xl bg-slate-50 p-4 text-sm text-slate-500">
+                      Votre historique apparaîtra après le démarrage du premier audit.
+                    </p>
+                  ) : (
+                    auditHistory.map((item) => (
                     <div
                       key={item.id}
                       className="rounded-2xl border border-slate-200 bg-slate-50 p-4"
@@ -1109,7 +1518,7 @@ function EspacePage() {
                         </div>
                         <div className="flex items-center gap-3">
                           <span className="rounded-full bg-white px-3 py-1 text-sm font-semibold text-slate-700">
-                            {item.score}%
+                            {item.score === null ? "—" : `${item.score}%`}
                           </span>
                           <span
                             className={`rounded-full px-2.5 py-1 text-xs font-semibold ${
@@ -1125,7 +1534,8 @@ function EspacePage() {
                         </div>
                       </div>
                     </div>
-                  ))}
+                    ))
+                  )}
                 </div>
               </section>
             )}
@@ -1228,7 +1638,7 @@ function EspacePage() {
                       <div
                         className="h-2 rounded-full bg-gradient-to-r from-primary to-cyan-500"
                         style={{
-                          width: `${((answeredCount + (currentQuestion > 0 ? 1 : 0)) / totalQuestions) * 100}%`,
+                          width: `${progressPercent}%`,
                         }}
                       />
                     </div>
@@ -1291,7 +1701,10 @@ function EspacePage() {
                       </div>
                       <div className="rounded-3xl bg-primary-soft px-4 py-3 text-center">
                         <p className="text-xs uppercase tracking-[0.2em] text-primary">Score</p>
-                        <p className="text-3xl font-black text-primary">{scorePercent}%</p>
+                        <p className="text-3xl font-black text-primary">
+                          {scorePoints}/{maxScore}
+                        </p>
+                        <p className="text-xs font-medium text-primary">{scorePercent}%</p>
                       </div>
                     </div>
 
@@ -1302,11 +1715,7 @@ function EspacePage() {
                             Évaluation globale
                           </h3>
                           <span className="rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-semibold text-emerald-700">
-                            {scorePercent >= 80
-                              ? "Mature"
-                              : scorePercent >= 60
-                                ? "En progression"
-                                : "À renforcer"}
+                            {getMaturityLevel(scorePoints)}
                           </span>
                         </div>
 
@@ -1318,18 +1727,15 @@ function EspacePage() {
                         </div>
 
                         <div className="mt-6 space-y-3 text-sm text-slate-600">
-                          <div className="flex items-center justify-between rounded-2xl border border-slate-200 bg-white p-3">
-                            <span>Gouvernance</span>
-                            <span className="font-semibold text-slate-800">90%</span>
-                          </div>
-                          <div className="flex items-center justify-between rounded-2xl border border-slate-200 bg-white p-3">
-                            <span>Accès et identité</span>
-                            <span className="font-semibold text-slate-800">84%</span>
-                          </div>
-                          <div className="flex items-center justify-between rounded-2xl border border-slate-200 bg-white p-3">
-                            <span>Réponse et continuité</span>
-                            <span className="font-semibold text-slate-800">72%</span>
-                          </div>
+                            {diagnosticDomains.map((domain) => (
+                            <div
+                              key={domain.name}
+                              className="flex items-center justify-between rounded-2xl border border-slate-200 bg-white p-3"
+                            >
+                              <span>{domain.name}</span>
+                              <span className="font-semibold text-slate-800">{domain.score}%</span>
+                            </div>
+                          ))}
                         </div>
                       </div>
 
@@ -1340,8 +1746,9 @@ function EspacePage() {
                             <span className="font-semibold">Recommandation clé</span>
                           </div>
                           <p className="mt-3 text-sm text-slate-700">
-                            Mettre en place une politique MFA obligatoire et tester les sauvegardes
-                            au moins une fois par trimestre.
+                            {weakestDomains[0]
+                              ? `Renforcer en priorité le thème « ${weakestDomains[0].name} » (${weakestDomains[0].score}%).`
+                              : "Les recommandations apparaîtront après l'enregistrement des réponses."}
                           </p>
                         </div>
 
@@ -1350,9 +1757,10 @@ function EspacePage() {
                           <div className="mt-4 space-y-3">
                             <button
                               type="button"
+                              onClick={generateDiagnosticReport}
                               className="flex w-full items-center justify-between rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-700"
                             >
-                              <span>Générer le rapport PDF</span>
+                              <span>Générer le rapport de diagnostic</span>
                               <Download className="h-4 w-4" />
                             </button>
                             <button
@@ -1371,6 +1779,27 @@ function EspacePage() {
                               <Zap className="h-4 w-4" />
                             </button>
                           </div>
+                        </div>
+
+                        <div className="rounded-3xl border border-slate-200 bg-white p-5">
+                          <p className="text-sm font-semibold text-slate-800">
+                            Recommandations prioritaires
+                          </p>
+                          {reportRecommendations.length === 0 ? (
+                            <p className="mt-3 text-sm text-slate-500">
+                              Aucune recommandation prioritaire pour les réponses enregistrées.
+                            </p>
+                          ) : (
+                            <ul className="mt-4 space-y-3 text-sm text-slate-600">
+                              {reportRecommendations.map((item) => (
+                                <li key={item.question} className="rounded-2xl bg-slate-50 p-3">
+                                  <p className="font-medium text-slate-800">{item.category}</p>
+                                  <p className="mt-1">Niveau obtenu : {item.level}/3</p>
+                                  <p className="mt-1">{item.recommendation}</p>
+                                </li>
+                              ))}
+                            </ul>
+                          )}
                         </div>
                       </div>
                     </div>

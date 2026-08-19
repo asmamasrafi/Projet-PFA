@@ -284,32 +284,38 @@ export type Database = {
       profiles: {
         Row: {
           account_type: string;
+          alert_frequency: string;
           created_at: string;
           email: string | null;
           first_name: string;
           id: string;
           job_title: string | null;
           last_name: string;
+          security_zone: string;
           updated_at: string;
         };
         Insert: {
           account_type?: string;
+          alert_frequency?: string;
           created_at?: string;
           email?: string | null;
           first_name?: string;
           id: string;
           job_title?: string | null;
           last_name?: string;
+          security_zone?: string;
           updated_at?: string;
         };
         Update: {
           account_type?: string;
+          alert_frequency?: string;
           created_at?: string;
           email?: string | null;
           first_name?: string;
           id?: string;
           job_title?: string | null;
           last_name?: string;
+          security_zone?: string;
           updated_at?: string;
         };
         Relationships: [];
