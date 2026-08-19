@@ -1058,7 +1058,9 @@ function EspacePage() {
               </div>
               <div>
                 <p className="text-sm font-semibold text-slate-900">Entreprise</p>
-                <p className="text-xs text-slate-500">ABY SAS</p>
+                <p className="max-w-[180px] truncate text-xs text-slate-500">
+                  {companyName || "Entreprise non renseignée"}
+                </p>
               </div>
             </div>
             <p className="mt-3 text-sm text-slate-600">{email ?? "Compte connecté"}</p>
@@ -1173,7 +1175,7 @@ function EspacePage() {
                       <p
                         className={`mt-2 font-bold tracking-tight text-slate-900 ${
                           label === "État du dernier audit"
-                            ? "text-xl leading-tight sm:text-2xl"
+                            ? "text-base font-semibold leading-tight sm:text-lg"
                             : "text-3xl"
                         }`}
                       >
@@ -1252,7 +1254,7 @@ function EspacePage() {
                               ) : (
                                 <CheckCircle2 className="h-4 w-4 text-primary" />
                               )}
-                              <span className="text-xs font-bold uppercase tracking-[0.16em] text-slate-500">
+                              <span className="font-mono text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
                                 Priorité {String(index + 1).padStart(2, "0")}
                               </span>
                               <span className="ml-auto rounded-full bg-white/80 px-2.5 py-1 text-sm font-bold text-slate-700">
