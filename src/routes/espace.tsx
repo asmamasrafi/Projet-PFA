@@ -25,6 +25,7 @@ import {
   Zap,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
+import { AuditorSpace } from "@/components/auditor-space";
 
 const title = "Mon espace — CyberAudit PME";
 const description = "Votre espace personnel CyberAudit PME.";
@@ -51,9 +52,27 @@ const navItems: { id: TabId; label: string; icon: LucideIcon }[] = [
 
 const overviewStats = [
   { label: "Score global", value: "82%", delta: "+8 pts", color: "bg-emerald-500", icon: Target },
-  { label: "Audits réalisés", value: "14", delta: "2 ce mois", color: "bg-blue-500", icon: FileText },
-  { label: "Risques critiques", value: "03", delta: "-2 depuis le dernier audit", color: "bg-amber-500", icon: AlertTriangle },
-  { label: "Plan d’action", value: "89%", delta: "7 actions en cours", color: "bg-violet-500", icon: TrendingUp },
+  {
+    label: "Audits réalisés",
+    value: "14",
+    delta: "2 ce mois",
+    color: "bg-blue-500",
+    icon: FileText,
+  },
+  {
+    label: "Risques critiques",
+    value: "03",
+    delta: "-2 depuis le dernier audit",
+    color: "bg-amber-500",
+    icon: AlertTriangle,
+  },
+  {
+    label: "Plan d’action",
+    value: "89%",
+    delta: "7 actions en cours",
+    color: "bg-violet-500",
+    icon: TrendingUp,
+  },
 ];
 
 const domains = [
@@ -66,58 +85,275 @@ const domains = [
 ];
 
 const auditHistory: AuditRecord[] = [
-  { id: 1042, name: "Audit de conformité", date: "12 mai 2026", score: 86, status: "Validé", scope: "Risque / Gouvernance" },
-  { id: 1039, name: "Maturité IAM", date: "26 avril 2026", score: 74, status: "En cours", scope: "Accès / Identité" },
-  { id: 1031, name: "Audit sécurité réseau", date: "18 mars 2026", score: 68, status: "À revoir", scope: "Infrastructure" },
-  { id: 1025, name: "Sensibilisation et phishing", date: "05 février 2026", score: 91, status: "Validé", scope: "RH / Culture" },
-  { id: 1018, name: "Plan de continuité", date: "12 janvier 2026", score: 78, status: "Validé", scope: "Récup / Continuité" },
+  {
+    id: 1042,
+    name: "Audit de conformité",
+    date: "12 mai 2026",
+    score: 86,
+    status: "Validé",
+    scope: "Risque / Gouvernance",
+  },
+  {
+    id: 1039,
+    name: "Maturité IAM",
+    date: "26 avril 2026",
+    score: 74,
+    status: "En cours",
+    scope: "Accès / Identité",
+  },
+  {
+    id: 1031,
+    name: "Audit sécurité réseau",
+    date: "18 mars 2026",
+    score: 68,
+    status: "À revoir",
+    scope: "Infrastructure",
+  },
+  {
+    id: 1025,
+    name: "Sensibilisation et phishing",
+    date: "05 février 2026",
+    score: 91,
+    status: "Validé",
+    scope: "RH / Culture",
+  },
+  {
+    id: 1018,
+    name: "Plan de continuité",
+    date: "12 janvier 2026",
+    score: 78,
+    status: "Validé",
+    scope: "Récup / Continuité",
+  },
 ];
 
-const auditQuestions = [
+const auditAxes = [
   {
-    category: "Gouvernance",
-    question: "L’entreprise dispose-t-elle d’un responsable cybersécurité ou d’un référent dédié ?",
-    options: ["Oui, clairement désigné", "Partiellement", "Non"],
+    name: "Contexte de l'entreprise",
+    noted: false,
+    questions: [
+      [
+        "Le système informatique est-il indispensable au fonctionnement quotidien de l'entreprise ?",
+        ["Non", "Oui"],
+      ],
+      [
+        "Une panne informatique de plusieurs jours aurait-elle un impact important sur l'activité ?",
+        ["Non", "Oui"],
+      ],
+      [
+        "La perte ou la modification accidentelle de données aurait-elle des conséquences importantes ?",
+        ["Non", "Oui"],
+      ],
+      [
+        "Une fuite d'informations sensibles (clients, finances) nuirait-elle gravement à l'entreprise ?",
+        ["Non", "Oui"],
+      ],
+      [
+        "L'entreprise évolue-t-elle dans un secteur très concurrentiel où l'information a de la valeur ?",
+        ["Non", "Oui"],
+      ],
+      [
+        "Le système informatique est-il connecté à internet ou à des partenaires externes ?",
+        ["Non", "Oui"],
+      ],
+    ],
   },
   {
-    category: "Accès",
-    question: "Les accès informatiques sont-ils gérés via une politique d’authentification forte ?",
-    options: ["Oui, MFA et rôle strict", "Partiellement", "Non / uniquement mot de passe"],
+    name: "Gouvernance et organisation",
+    noted: true,
+    questions: [
+      [
+        "Avez-vous mis en place des règles de sécurité informatique dans votre entreprise ?",
+        [
+          "Aucune règle définie : chacun fait comme il veut.",
+          "Quelques règles existent, mais elles sont seulement dites à l'oral et pas toujours suivies.",
+          "Des règles sont suivies au quotidien par les employés, mais elles ne sont écrites nulle part.",
+          "Il existe un document écrit avec les règles de sécurité, distribué à tous les employés.",
+        ],
+      ],
+      [
+        "Une personne est-elle chargée de s'occuper de la sécurité informatique de l'entreprise ?",
+        [
+          "Personne ne s'occupe de la sécurité informatique.",
+          "Quelqu'un s'en occupe de temps en temps, sans que ce soit son rôle officiel.",
+          "Une personne s'en occupe régulièrement, mais ce n'est pas écrit dans ses fonctions.",
+          "Une personne est officiellement désignée responsable, et tout le monde le sait.",
+        ],
+      ],
+      [
+        "Savez-vous exactement quels ordinateurs et logiciels sont utilisés dans votre entreprise ?",
+        [
+          "Aucune liste n'existe : personne ne sait précisément ce qui est utilisé.",
+          "Une liste existe mais elle est incomplète et rarement mise à jour.",
+          "Une liste existe et elle est mise à jour de temps en temps, mais pas systématiquement.",
+          "Une liste complète existe et elle est tenue à jour à chaque changement.",
+        ],
+      ],
+      [
+        "Réfléchissez-vous régulièrement aux risques informatiques qui menacent votre entreprise (virus, panne, vol) ?",
+        [
+          "Jamais : ces risques ne sont pas évalués.",
+          "De temps en temps, mais sans méthode particulière ni suivi.",
+          "Régulièrement, en général une fois dans l'année.",
+          "Au moins une fois par an, de façon organisée et structurée.",
+        ],
+      ],
+    ],
   },
   {
-    category: "Sauvegarde",
-    question: "Les sauvegardes sont-elles vérifiées et restaurées régulièrement ?",
-    options: ["Oui, tests réguliers", "Partiellement", "Non"],
+    name: "Accès, mots de passe et réseau",
+    noted: true,
+    questions: [
+      [
+        "Chaque employé possède-t-il son propre compte pour se connecter aux ordinateurs et aux logiciels ?",
+        [
+          "Non : plusieurs employés utilisent le même identifiant et le même mot de passe.",
+          "Une partie seulement des employés a un compte individuel.",
+          "Tous les employés ont un compte individuel.",
+          "Tous les employés ont un compte individuel, et l'entreprise vérifie qui accède à quoi.",
+        ],
+      ],
+      [
+        "Comment sont gérés les mots de passe dans votre entreprise ?",
+        [
+          "Il n'y a aucune règle particulière sur les mots de passe.",
+          "Il existe des règles de base, mais les mots de passe sont rarement changés.",
+          "Les mots de passe sont corrects, et changés de temps en temps.",
+          "Les mots de passe sont complexes (lettres, chiffres, symboles) et changés régulièrement.",
+        ],
+      ],
+      [
+        "Quand un employé quitte l'entreprise, ses accès informatiques sont-ils supprimés ?",
+        [
+          "Non, jamais fait : d'anciens employés peuvent encore avoir accès.",
+          "Cela arrive, mais souvent avec du retard.",
+          "Cela est fait la plupart du temps.",
+          "Cela est fait systématiquement, dès le jour du départ de l'employé.",
+        ],
+      ],
+      [
+        "Le réseau Wi-Fi de votre entreprise est-il protégé ?",
+        [
+          "Non, il n'y a pas de mot de passe sur le Wi-Fi.",
+          "Il y a un mot de passe, mais il est le même pour les employés et pour les visiteurs.",
+          "Il y a un mot de passe, mais il est connu et partagé largement.",
+          "Il existe un réseau séparé pour les visiteurs et un réseau protégé pour les employés.",
+        ],
+      ],
+      [
+        "Les ordinateurs de votre entreprise sont-ils protégés par un antivirus ?",
+        [
+          "Non, aucun antivirus n'est installé.",
+          "Un antivirus est installé sur certains ordinateurs seulement.",
+          "Un antivirus est installé partout, mais il n'est pas toujours mis à jour.",
+          "Un antivirus est installé et mis à jour sur tous les ordinateurs.",
+        ],
+      ],
+    ],
   },
   {
-    category: "Sensibilisation",
-    question: "Les équipes reçoivent-elles une sensibilisation régulière sur le phishing et les bonnes pratiques ?",
-    options: ["Oui, chaque trimestre", "Parfois", "Non"],
+    name: "Sensibilisation et sécurité humaine",
+    noted: true,
+    questions: [
+      [
+        "Vos employés sont-ils informés des risques liés à internet et aux emails (virus, arnaques) ?",
+        [
+          "Non, aucune information n'est donnée à ce sujet.",
+          "Quelques conseils sont donnés de temps en temps, de manière informelle.",
+          "Une information est donnée de temps en temps, mais sans régularité.",
+          "Une formation ou une information est organisée au moins une fois par an.",
+        ],
+      ],
+      [
+        "Vos employés savent-ils reconnaître un email suspect ou une tentative d'arnaque (phishing) ?",
+        [
+          "Non, les employés ne sont pas informés sur ce sujet.",
+          "Quelques employés seulement savent reconnaître un email suspect.",
+          "La plupart des employés savent le reconnaître.",
+          "Tous les employés savent reconnaître un email suspect et savent quoi faire.",
+        ],
+      ],
+      [
+        "L'accès aux locaux où se trouvent les ordinateurs et serveurs importants est-il protégé ?",
+        [
+          "Non, aucune protection particulière (portes ouvertes, accès libre).",
+          "Quelques précautions de bon sens sont prises, mais rien d'organisé.",
+          "L'accès à certaines zones sensibles est limité.",
+          "L'accès est strictement contrôlé, par exemple avec une porte fermée à clé ou un badge.",
+        ],
+      ],
+      [
+        "Les informations confidentielles (données des clients, dossiers du personnel) sont-elles protégées ?",
+        [
+          "Non, aucune protection particulière n'est mise en place.",
+          "L'accès est limité, mais de façon informelle, sans règle précise.",
+          "L'accès est restreint, mais ce n'est pas écrit officiellement.",
+          "L'accès est restreint et protégé, par exemple par un mot de passe ou un dossier réservé.",
+        ],
+      ],
+    ],
   },
   {
-    category: "Incidents",
-    question: "Un plan de réponse à incident est-il défini et testé ?",
-    options: ["Oui, documenté et testé", "Partiellement", "Non"],
+    name: "Sauvegarde, incidents et conformité",
+    noted: true,
+    questions: [
+      [
+        "Les données importantes de votre entreprise (factures, clients, documents) sont-elles sauvegardées ?",
+        [
+          "Non, il n'y a aucune sauvegarde.",
+          "Une sauvegarde est faite de temps en temps, sans planification.",
+          "Une sauvegarde est faite régulièrement, mais elle n'est jamais vérifiée.",
+          "Une sauvegarde est faite régulièrement et son bon fonctionnement est vérifié.",
+        ],
+      ],
+      [
+        "Où sont conservées les sauvegardes de vos données ?",
+        [
+          "Toujours au même endroit que les données d'origine (même ordinateur ou serveur).",
+          "Une copie est faite ailleurs, mais seulement de temps en temps.",
+          "Une copie est faite ailleurs régulièrement.",
+          "Les sauvegardes sont toujours conservées ailleurs (disque externe ou cloud).",
+        ],
+      ],
+      [
+        "En cas de problème informatique (panne, piratage), vos employés savent-ils quoi faire ?",
+        [
+          "Non, il n'existe aucune consigne à ce sujet.",
+          "On réagit au cas par cas, sans règle précise.",
+          "Certaines consignes existent et sont connues de quelques personnes seulement.",
+          "Il existe une procédure écrite, connue de tous les employés.",
+        ],
+      ],
+      [
+        "Si votre système informatique tombait en panne pendant plusieurs jours, votre entreprise pourrait-elle continuer à fonctionner ?",
+        [
+          "Non, aucun plan n'est prévu pour ce genre de situation.",
+          "Quelques solutions de secours existent, mais de façon ponctuelle.",
+          "Un plan existe, mais il n'est pas complet ni testé.",
+          "Un plan complet existe et a déjà été testé pour vérifier qu'il fonctionne.",
+        ],
+      ],
+      [
+        "Votre entreprise respecte-t-elle les règles marocaines sur la protection des données personnelles (loi 09-08) ?",
+        [
+          "Non, ces règles ne sont pas respectées.",
+          "Elles sont respectées de façon isolée, sans démarche organisée.",
+          "Elles sont généralement respectées.",
+          "Elles sont respectées et l'entreprise vérifie régulièrement qu'elle est en conformité.",
+        ],
+      ],
+    ],
   },
-  {
-    category: "Conformité",
-    question: "Des contrôles ou obligations réglementaires sont-ils suivis et documentés ?",
-    options: ["Oui, avec suivi régulier", "Partiellement", "Non"],
-  },
-];
+] as const;
 
-const scoringMap: Record<string, number> = {
-  "Oui, clairement désigné": 3,
-  "Oui, MFA et rôle strict": 3,
-  "Oui, tests réguliers": 3,
-  "Oui, chaque trimestre": 3,
-  "Oui, documenté et testé": 3,
-  "Oui, avec suivi régulier": 3,
-  Partiellement: 2,
-  Parfois: 2,
-  "Non / uniquement mot de passe": 1,
-  Non: 1,
-};
+const auditQuestions = auditAxes.flatMap((axis) =>
+  axis.questions.map(([question, options]) => ({
+    category: axis.name,
+    noted: axis.noted,
+    question,
+    options,
+  })),
+);
 
 export const Route = createFileRoute("/espace")({
   head: () => ({
@@ -163,19 +399,33 @@ function EspacePage() {
       setEmail(session.user.email ?? null);
 
       try {
-        const { data: roleRow } = await supabase
-          .from("user_roles")
-          .select("role")
-          .eq("user_id", session.user.id)
+        const [{ data: roleRows }, { data: profile }] = await Promise.all([
+          supabase.from("user_roles").select("role").eq("user_id", session.user.id),
+          supabase.from("profiles").select("account_type").eq("id", session.user.id).maybeSingle(),
+        ]);
+
+        const roles = (roleRows ?? []).map((row) => row.role);
+        const detectedRole = roles.includes("auditor")
+          ? "auditor"
+          : roles.includes("admin")
+            ? "admin"
+            : profile?.account_type === "auditor"
+              ? "auditor"
+              : "pme";
+
+        setRole(detectedRole);
+      } catch {
+        const { data: profile } = await supabase
+          .from("profiles")
+          .select("account_type")
+          .eq("id", session.user.id)
           .maybeSingle();
 
-        if (roleRow?.role) {
-          setRole(roleRow.role as "pme" | "auditor" | "admin");
+        if (profile?.account_type === "auditor") {
+          setRole("auditor");
         } else {
           setRole("pme");
         }
-      } catch {
-        setRole("pme");
       } finally {
         if (active) setLoading(false);
       }
@@ -192,11 +442,19 @@ function EspacePage() {
   const answeredCount = Object.keys(answers).length;
 
   const scorePercent = useMemo(() => {
-    if (answeredCount === 0) return 0;
+    const scoredAnswers = Object.entries(answers).filter(
+      ([questionIndex]) => auditQuestions[Number(questionIndex)]?.noted,
+    );
 
-    const total = Object.values(answers).reduce((sum, value) => sum + (scoringMap[value] ?? 0), 0);
-    return Math.round((total / (answeredCount * 3)) * 100);
-  }, [answers, answeredCount]);
+    if (scoredAnswers.length === 0) return 0;
+
+    const total = scoredAnswers.reduce(
+      (sum, [questionIndex, value]) =>
+        sum + auditQuestions[Number(questionIndex)].options.indexOf(value),
+      0,
+    );
+    return Math.round((total / (scoredAnswers.length * 3)) * 100);
+  }, [answers]);
 
   const currentQuestionData = auditQuestions[currentQuestion];
 
@@ -235,6 +493,10 @@ function EspacePage() {
     );
   }
 
+  if (role === "auditor") {
+    return <AuditorSpace email={email} onLogout={handleLogout} />;
+  }
+
   return (
     <div className="min-h-screen bg-slate-100 text-slate-900">
       <div className="mx-auto flex max-w-[1600px] gap-6 px-4 py-5 lg:px-6">
@@ -249,7 +511,9 @@ function EspacePage() {
                 <ShieldCheck className="h-5 w-5" />
               </div>
               <div>
-                <p className="text-xs font-semibold uppercase tracking-[0.22em] text-primary">PME</p>
+                <p className="text-xs font-semibold uppercase tracking-[0.22em] text-primary">
+                  PME
+                </p>
                 <p className="text-sm font-semibold">CyberAudit</p>
               </div>
             </div>
@@ -332,8 +596,12 @@ function EspacePage() {
                 <Menu className="h-4 w-4" />
               </button>
               <div>
-                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">Espace PME</p>
-                <h1 className="mt-1 text-2xl font-bold tracking-tight text-slate-900">Tableau de bord</h1>
+                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">
+                  Espace PME
+                </p>
+                <h1 className="mt-1 text-2xl font-bold tracking-tight text-slate-900">
+                  Tableau de bord
+                </h1>
               </div>
             </div>
 
@@ -357,9 +625,14 @@ function EspacePage() {
               <>
                 <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
                   {overviewStats.map(({ label, value, delta, color, icon: Icon }) => (
-                    <div key={label} className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm">
+                    <div
+                      key={label}
+                      className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm"
+                    >
                       <div className="flex items-center justify-between">
-                        <div className={`flex h-11 w-11 items-center justify-center rounded-2xl ${color} text-white`}>
+                        <div
+                          className={`flex h-11 w-11 items-center justify-center rounded-2xl ${color} text-white`}
+                        >
                           <Icon className="h-5 w-5" />
                         </div>
                         <span className="rounded-full bg-emerald-50 px-2 py-1 text-[10px] font-medium text-emerald-700">
@@ -367,7 +640,9 @@ function EspacePage() {
                         </span>
                       </div>
                       <p className="mt-5 text-sm text-slate-500">{label}</p>
-                      <p className="mt-2 text-3xl font-bold tracking-tight text-slate-900">{value}</p>
+                      <p className="mt-2 text-3xl font-bold tracking-tight text-slate-900">
+                        {value}
+                      </p>
                     </div>
                   ))}
                 </section>
@@ -376,10 +651,16 @@ function EspacePage() {
                   <div className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm">
                     <div className="flex items-center justify-between">
                       <div>
-                        <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">Maturité</p>
-                        <h2 className="mt-2 text-xl font-semibold text-slate-900">Score par domaine</h2>
+                        <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">
+                          Maturité
+                        </p>
+                        <h2 className="mt-2 text-xl font-semibold text-slate-900">
+                          Score par domaine
+                        </h2>
                       </div>
-                      <div className="rounded-full bg-primary-soft px-3 py-1 text-sm font-semibold text-primary">82/100</div>
+                      <div className="rounded-full bg-primary-soft px-3 py-1 text-sm font-semibold text-primary">
+                        82/100
+                      </div>
                     </div>
 
                     <div className="mt-6 space-y-4">
@@ -401,7 +682,9 @@ function EspacePage() {
                   </div>
 
                   <div className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm">
-                    <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">Synthèse</p>
+                    <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">
+                      Synthèse
+                    </p>
                     <h2 className="mt-2 text-xl font-semibold text-slate-900">Priorités</h2>
 
                     <div className="mt-5 space-y-4">
@@ -410,7 +693,9 @@ function EspacePage() {
                           <AlertTriangle className="h-4 w-4" />
                           <span className="font-semibold">Priorité 1</span>
                         </div>
-                        <p className="mt-2 text-sm text-slate-700">Renforcer les accès privilégiés et la politique MFA.</p>
+                        <p className="mt-2 text-sm text-slate-700">
+                          Renforcer les accès privilégiés et la politique MFA.
+                        </p>
                       </div>
 
                       <div className="rounded-2xl border border-blue-200 bg-blue-50 p-4">
@@ -418,7 +703,9 @@ function EspacePage() {
                           <Clock3 className="h-4 w-4" />
                           <span className="font-semibold">Priorité 2</span>
                         </div>
-                        <p className="mt-2 text-sm text-slate-700">Créer des sauvegardes et tests de restauration trimestriels.</p>
+                        <p className="mt-2 text-sm text-slate-700">
+                          Créer des sauvegardes et tests de restauration trimestriels.
+                        </p>
                       </div>
 
                       <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4">
@@ -426,7 +713,9 @@ function EspacePage() {
                           <CheckCircle2 className="h-4 w-4" />
                           <span className="font-semibold">Priorité 3</span>
                         </div>
-                        <p className="mt-2 text-sm text-slate-700">Le programme de sensibilisation est bien avancé et à consolider.</p>
+                        <p className="mt-2 text-sm text-slate-700">
+                          Le programme de sensibilisation est bien avancé et à consolider.
+                        </p>
                       </div>
                     </div>
                   </div>
@@ -435,8 +724,12 @@ function EspacePage() {
                 <section className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm">
                   <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                     <div>
-                      <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">Audits</p>
-                      <h2 className="mt-2 text-xl font-semibold text-slate-900">Tableau des évaluations</h2>
+                      <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">
+                        Audits
+                      </p>
+                      <h2 className="mt-2 text-xl font-semibold text-slate-900">
+                        Tableau des évaluations
+                      </h2>
                     </div>
                     <button
                       type="button"
@@ -495,8 +788,12 @@ function EspacePage() {
             {activeTab === "profile" && (
               <section className="grid gap-6 xl:grid-cols-[1.2fr_0.8fr]">
                 <div className="rounded-[28px] border border-slate-200 bg-white p-6 shadow-sm">
-                  <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">Profil</p>
-                  <h2 className="mt-2 text-2xl font-bold text-slate-900">Informations de l’entreprise</h2>
+                  <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">
+                    Profil
+                  </p>
+                  <h2 className="mt-2 text-2xl font-bold text-slate-900">
+                    Informations de l’entreprise
+                  </h2>
 
                   <div className="mt-6 grid gap-4 sm:grid-cols-2">
                     <div className="rounded-2xl bg-slate-50 p-4">
@@ -513,14 +810,20 @@ function EspacePage() {
                     </div>
                     <div className="rounded-2xl bg-slate-50 p-4">
                       <p className="text-sm text-slate-500">Contact</p>
-                      <p className="mt-2 text-lg font-semibold">{email ?? "contact@entreprise.ma"}</p>
+                      <p className="mt-2 text-lg font-semibold">
+                        {email ?? "contact@entreprise.ma"}
+                      </p>
                     </div>
                   </div>
                 </div>
 
                 <div className="rounded-[28px] border border-slate-200 bg-white p-6 shadow-sm">
-                  <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">Progression</p>
-                  <h3 className="mt-2 text-xl font-semibold text-slate-900">Complétude du profil</h3>
+                  <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">
+                    Progression
+                  </p>
+                  <h3 className="mt-2 text-xl font-semibold text-slate-900">
+                    Complétude du profil
+                  </h3>
 
                   <div className="mt-6 rounded-2xl bg-primary-soft p-4">
                     <div className="flex items-center justify-between">
@@ -528,7 +831,10 @@ function EspacePage() {
                       <span className="text-sm font-semibold text-primary">92%</span>
                     </div>
                     <div className="mt-3 h-2.5 rounded-full bg-white">
-                      <div className="h-2.5 rounded-full bg-gradient-to-r from-primary to-cyan-500" style={{ width: "92%" }} />
+                      <div
+                        className="h-2.5 rounded-full bg-gradient-to-r from-primary to-cyan-500"
+                        style={{ width: "92%" }}
+                      />
                     </div>
                   </div>
 
@@ -552,33 +858,55 @@ function EspacePage() {
 
             {activeTab === "settings" && (
               <section className="rounded-[28px] border border-slate-200 bg-white p-6 shadow-sm">
-                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">Paramètres</p>
+                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">
+                  Paramètres
+                </p>
                 <h2 className="mt-2 text-2xl font-bold text-slate-900">Gestion de votre espace</h2>
 
                 <div className="mt-6 grid gap-6 lg:grid-cols-2">
                   <div className="space-y-5">
                     <label className="block">
-                      <span className="mb-2 block text-sm font-medium text-slate-700">Nom de l’entreprise</span>
-                      <input defaultValue="ABY SAS" className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2.5 outline-none ring-0 transition focus:border-primary" />
+                      <span className="mb-2 block text-sm font-medium text-slate-700">
+                        Nom de l’entreprise
+                      </span>
+                      <input
+                        defaultValue="ABY SAS"
+                        className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2.5 outline-none ring-0 transition focus:border-primary"
+                      />
                     </label>
                     <label className="block">
-                      <span className="mb-2 block text-sm font-medium text-slate-700">Adresse e-mail</span>
-                      <input defaultValue={email ?? "contact@entreprise.ma"} className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2.5 outline-none ring-0 transition focus:border-primary" />
+                      <span className="mb-2 block text-sm font-medium text-slate-700">
+                        Adresse e-mail
+                      </span>
+                      <input
+                        defaultValue={email ?? "contact@entreprise.ma"}
+                        className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2.5 outline-none ring-0 transition focus:border-primary"
+                      />
                     </label>
                   </div>
 
                   <div className="space-y-5">
                     <label className="block">
-                      <span className="mb-2 block text-sm font-medium text-slate-700">Fréquence des alertes</span>
-                      <select defaultValue="hebdomadaire" className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2.5 outline-none transition focus:border-primary">
+                      <span className="mb-2 block text-sm font-medium text-slate-700">
+                        Fréquence des alertes
+                      </span>
+                      <select
+                        defaultValue="hebdomadaire"
+                        className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2.5 outline-none transition focus:border-primary"
+                      >
                         <option value="hebdomadaire">Hebdomadaire</option>
                         <option value="mensuelle">Mensuelle</option>
                         <option value="quotidienne">Quotidienne</option>
                       </select>
                     </label>
                     <label className="block">
-                      <span className="mb-2 block text-sm font-medium text-slate-700">Zone de sécurité</span>
-                      <select defaultValue="maroc" className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2.5 outline-none transition focus:border-primary">
+                      <span className="mb-2 block text-sm font-medium text-slate-700">
+                        Zone de sécurité
+                      </span>
+                      <select
+                        defaultValue="maroc"
+                        className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2.5 outline-none transition focus:border-primary"
+                      >
                         <option value="maroc">Maroc / Europe</option>
                         <option value="afrique">Afrique</option>
                         <option value="monde">Monde entier</option>
@@ -588,8 +916,18 @@ function EspacePage() {
                 </div>
 
                 <div className="mt-6 flex flex-wrap gap-3">
-                  <button type="button" className="rounded-2xl bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground">Enregistrer</button>
-                  <button type="button" className="rounded-2xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700">Réinitialiser</button>
+                  <button
+                    type="button"
+                    className="rounded-2xl bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground"
+                  >
+                    Enregistrer
+                  </button>
+                  <button
+                    type="button"
+                    className="rounded-2xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700"
+                  >
+                    Réinitialiser
+                  </button>
                 </div>
               </section>
             )}
@@ -598,10 +936,17 @@ function EspacePage() {
               <section className="rounded-[28px] border border-slate-200 bg-white p-6 shadow-sm">
                 <div className="flex items-center justify-between gap-3">
                   <div>
-                    <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">Historique</p>
-                    <h2 className="mt-2 text-2xl font-bold text-slate-900">Suivi des évaluations</h2>
+                    <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">
+                      Historique
+                    </p>
+                    <h2 className="mt-2 text-2xl font-bold text-slate-900">
+                      Suivi des évaluations
+                    </h2>
                   </div>
-                  <button type="button" className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-medium text-slate-700">
+                  <button
+                    type="button"
+                    className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-medium text-slate-700"
+                  >
                     <Download className="h-4 w-4" />
                     Exporter
                   </button>
@@ -609,21 +954,30 @@ function EspacePage() {
 
                 <div className="mt-6 space-y-4">
                   {auditHistory.map((item) => (
-                    <div key={item.id} className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                    <div
+                      key={item.id}
+                      className="rounded-2xl border border-slate-200 bg-slate-50 p-4"
+                    >
                       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                         <div>
                           <p className="text-base font-semibold text-slate-900">{item.name}</p>
-                          <p className="mt-1 text-sm text-slate-500">{item.date} • {item.scope}</p>
+                          <p className="mt-1 text-sm text-slate-500">
+                            {item.date} • {item.scope}
+                          </p>
                         </div>
                         <div className="flex items-center gap-3">
-                          <span className="rounded-full bg-white px-3 py-1 text-sm font-semibold text-slate-700">{item.score}%</span>
-                          <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${
-                            item.status === "Validé"
-                              ? "bg-emerald-100 text-emerald-700"
-                              : item.status === "En cours"
-                                ? "bg-blue-100 text-blue-700"
-                                : "bg-amber-100 text-amber-700"
-                          }`}>
+                          <span className="rounded-full bg-white px-3 py-1 text-sm font-semibold text-slate-700">
+                            {item.score}%
+                          </span>
+                          <span
+                            className={`rounded-full px-2.5 py-1 text-xs font-semibold ${
+                              item.status === "Validé"
+                                ? "bg-emerald-100 text-emerald-700"
+                                : item.status === "En cours"
+                                  ? "bg-blue-100 text-blue-700"
+                                  : "bg-amber-100 text-amber-700"
+                            }`}
+                          >
                             {item.status}
                           </span>
                         </div>
@@ -640,33 +994,47 @@ function EspacePage() {
                   <div className="rounded-[28px] border border-slate-200 bg-white p-6 shadow-sm">
                     <div className="flex items-start justify-between gap-4">
                       <div>
-                        <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">Audit</p>
-                        <h2 className="mt-2 text-3xl font-bold text-slate-900">Diagnostic cybersécurité PME</h2>
+                        <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">
+                          Audit
+                        </p>
+                        <h2 className="mt-2 text-3xl font-bold text-slate-900">
+                          Diagnostic cybersécurité PME
+                        </h2>
                         <p className="mt-3 max-w-2xl text-slate-600">
-                          Évaluez votre niveau de maturité sur 6 domaines clés : gouvernance, accès, sauvegarde, sensibilisation, réponse à incident et conformité.
+                          Évaluez votre niveau de maturité sur 5 axes, précédés d’un contexte
+                          d’entreprise non noté : gouvernance, accès, sensibilisation, sauvegarde,
+                          incidents et conformité.
                         </p>
                       </div>
                       <div className="rounded-2xl bg-primary-soft p-4 text-right">
                         <p className="text-sm text-slate-500">Durée estimée</p>
-                        <p className="text-2xl font-bold text-primary">6 min</p>
+                        <p className="text-2xl font-bold text-primary">10 min</p>
                       </div>
                     </div>
 
                     <div className="mt-8 grid gap-4 md:grid-cols-3">
                       <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
                         <Gauge className="h-5 w-5 text-primary" />
-                        <p className="mt-3 text-lg font-semibold text-slate-900">6 domaines</p>
-                        <p className="mt-1 text-sm text-slate-600">Une vision claire de votre posture.</p>
+                        <p className="mt-3 text-lg font-semibold text-slate-900">5 axes notés</p>
+                        <p className="mt-1 text-sm text-slate-600">
+                          Une vision claire de votre posture.
+                        </p>
                       </div>
                       <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
                         <BriefcaseBusiness className="h-5 w-5 text-primary" />
                         <p className="mt-3 text-lg font-semibold text-slate-900">Adapté PME</p>
-                        <p className="mt-1 text-sm text-slate-600">Questions simples et orientées décision.</p>
+                        <p className="mt-1 text-sm text-slate-600">
+                          Questions simples et orientées décision.
+                        </p>
                       </div>
                       <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
                         <FileText className="h-5 w-5 text-primary" />
-                        <p className="mt-3 text-lg font-semibold text-slate-900">Rapport exportable</p>
-                        <p className="mt-1 text-sm text-slate-600">Un plan d’action prêt à partager.</p>
+                        <p className="mt-3 text-lg font-semibold text-slate-900">
+                          Rapport exportable
+                        </p>
+                        <p className="mt-1 text-sm text-slate-600">
+                          Un plan d’action prêt à partager.
+                        </p>
                       </div>
                     </div>
 
@@ -692,8 +1060,17 @@ function EspacePage() {
                   <div className="rounded-[28px] border border-slate-200 bg-white p-6 shadow-sm">
                     <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                       <div>
-                        <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">Question {currentQuestion + 1}/{totalQuestions}</p>
-                        <h2 className="mt-2 text-2xl font-bold text-slate-900">{currentQuestionData.category}</h2>
+                        <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">
+                          Question {currentQuestion + 1}/{totalQuestions}
+                        </p>
+                        <h2 className="mt-2 text-2xl font-bold text-slate-900">
+                          {currentQuestionData.category}
+                        </h2>
+                        {!currentQuestionData.noted && (
+                          <p className="mt-2 text-sm font-medium text-primary">
+                            Questions de contexte, non prises en compte dans le score
+                          </p>
+                        )}
                       </div>
                       <div className="rounded-full bg-slate-100 px-3 py-1.5 text-sm font-medium text-slate-600">
                         {answeredCount}/{totalQuestions} répondues
@@ -703,12 +1080,16 @@ function EspacePage() {
                     <div className="mt-6 h-2 rounded-full bg-slate-100">
                       <div
                         className="h-2 rounded-full bg-gradient-to-r from-primary to-cyan-500"
-                        style={{ width: `${((answeredCount + (currentQuestion > 0 ? 1 : 0)) / totalQuestions) * 100}%` }}
+                        style={{
+                          width: `${((answeredCount + (currentQuestion > 0 ? 1 : 0)) / totalQuestions) * 100}%`,
+                        }}
                       />
                     </div>
 
                     <div className="mt-8 rounded-3xl bg-slate-50 p-5">
-                      <p className="text-xl font-semibold leading-relaxed text-slate-900">{currentQuestionData.question}</p>
+                      <p className="text-xl font-semibold leading-relaxed text-slate-900">
+                        {currentQuestionData.question}
+                      </p>
                     </div>
 
                     <div className="mt-6 grid gap-3">
@@ -754,8 +1135,12 @@ function EspacePage() {
                   <div className="rounded-[28px] border border-slate-200 bg-white p-6 shadow-sm">
                     <div className="flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
                       <div>
-                        <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">Résultats</p>
-                        <h2 className="mt-2 text-3xl font-bold text-slate-900">Votre niveau de maturité</h2>
+                        <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">
+                          Résultats
+                        </p>
+                        <h2 className="mt-2 text-3xl font-bold text-slate-900">
+                          Votre niveau de maturité
+                        </h2>
                       </div>
                       <div className="rounded-3xl bg-primary-soft px-4 py-3 text-center">
                         <p className="text-xs uppercase tracking-[0.2em] text-primary">Score</p>
@@ -766,9 +1151,15 @@ function EspacePage() {
                     <div className="mt-8 grid gap-6 lg:grid-cols-[1.1fr_0.9fr]">
                       <div className="rounded-3xl bg-slate-50 p-5">
                         <div className="flex items-center justify-between">
-                          <h3 className="text-lg font-semibold text-slate-900">Évaluation globale</h3>
+                          <h3 className="text-lg font-semibold text-slate-900">
+                            Évaluation globale
+                          </h3>
                           <span className="rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-semibold text-emerald-700">
-                            {scorePercent >= 80 ? "Mature" : scorePercent >= 60 ? "En progression" : "À renforcer"}
+                            {scorePercent >= 80
+                              ? "Mature"
+                              : scorePercent >= 60
+                                ? "En progression"
+                                : "À renforcer"}
                           </span>
                         </div>
 
@@ -802,22 +1193,33 @@ function EspacePage() {
                             <span className="font-semibold">Recommandation clé</span>
                           </div>
                           <p className="mt-3 text-sm text-slate-700">
-                            Mettre en place une politique MFA obligatoire et tester les sauvegardes au moins une fois par trimestre.
+                            Mettre en place une politique MFA obligatoire et tester les sauvegardes
+                            au moins une fois par trimestre.
                           </p>
                         </div>
 
                         <div className="rounded-3xl border border-slate-200 bg-white p-5">
                           <p className="text-sm font-semibold text-slate-800">Options de rapport</p>
                           <div className="mt-4 space-y-3">
-                            <button type="button" className="flex w-full items-center justify-between rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-700">
+                            <button
+                              type="button"
+                              className="flex w-full items-center justify-between rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-700"
+                            >
                               <span>Générer le rapport PDF</span>
                               <Download className="h-4 w-4" />
                             </button>
-                            <button type="button" className="flex w-full items-center justify-between rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-700">
+                            <button
+                              type="button"
+                              className="flex w-full items-center justify-between rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-700"
+                            >
                               <span>Envoyer à la direction</span>
                               <ArrowRight className="h-4 w-4" />
                             </button>
-                            <button type="button" onClick={resetAudit} className="flex w-full items-center justify-between rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-700">
+                            <button
+                              type="button"
+                              onClick={resetAudit}
+                              className="flex w-full items-center justify-between rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-700"
+                            >
                               <span>Refaire un audit</span>
                               <Zap className="h-4 w-4" />
                             </button>
