@@ -102,7 +102,11 @@ function getRecommendations(questions: AuditQuestion[], answers: Record<number, 
   const selected = priorityCandidates.slice(0, 5);
 
   if (selected.length < 3) {
-    selected.push(...candidates.filter((candidate) => !selected.includes(candidate)).slice(0, 3 - selected.length));
+    selected.push(
+      ...candidates
+        .filter((candidate) => !selected.includes(candidate))
+        .slice(0, 3 - selected.length),
+    );
   }
 
   return selected.slice(0, 5);
@@ -123,7 +127,9 @@ function getCategoryScores(questions: AuditQuestion[], answers: Record<number, s
 
   return Array.from(scoresByCategory.entries()).map(([name, scores]) => ({
     name,
-    score: Math.round((scores.reduce((total, score) => total + score, 0) / (scores.length * 3)) * 100),
+    score: Math.round(
+      (scores.reduce((total, score) => total + score, 0) / (scores.length * 3)) * 100,
+    ),
   }));
 }
 
@@ -567,8 +573,7 @@ function EspacePage() {
                 Array.from(categoryScores.entries()).map(([name, scores]) => ({
                   name,
                   score: Math.round(
-                    (scores.reduce((total, score) => total + score, 0) / (scores.length * 3)) *
-                      100,
+                    (scores.reduce((total, score) => total + score, 0) / (scores.length * 3)) * 100,
                   ),
                 })),
               );
@@ -658,9 +663,10 @@ function EspacePage() {
   const criticalDomains = domains.filter((domain) => domain.score < 50).length;
   const inProgressAudits = auditHistory.filter((audit) => audit.status === "En cours").length;
   const alertCount = reportRecommendations.length + criticalDomains + inProgressAudits;
-  const alertSummary = alertCount === 0
-    ? "Aucun point critique à traiter"
-    : `${reportRecommendations.length} recommandation${reportRecommendations.length > 1 ? "s" : ""}, ${criticalDomains} domaine${criticalDomains > 1 ? "s" : ""} faible${criticalDomains > 1 ? "s" : ""}`;
+  const alertSummary =
+    alertCount === 0
+      ? "Aucun point critique à traiter"
+      : `${reportRecommendations.length} recommandation${reportRecommendations.length > 1 ? "s" : ""}, ${criticalDomains} domaine${criticalDomains > 1 ? "s" : ""} faible${criticalDomains > 1 ? "s" : ""}`;
   const weakestDomains = [...domains].sort((left, right) => left.score - right.score).slice(0, 3);
   const todayLabel = new Intl.DateTimeFormat("fr-FR", {
     day: "numeric",
@@ -670,12 +676,14 @@ function EspacePage() {
   const overviewStats = [
     {
       label: "Score global",
-      value: latestAudit?.score !== null && latestAudit?.score !== undefined
-        ? `${latestAudit.score}%`
-        : "—",
-      delta: latestAudit?.score !== null && latestAudit?.score !== undefined
-        ? getMaturityLevel(Math.round((latestAudit.score * maxScore) / 100))
-        : "Aucun audit",
+      value:
+        latestAudit?.score !== null && latestAudit?.score !== undefined
+          ? `${latestAudit.score}%`
+          : "—",
+      delta:
+        latestAudit?.score !== null && latestAudit?.score !== undefined
+          ? getMaturityLevel(Math.round((latestAudit.score * maxScore) / 100))
+          : "Aucun audit",
       color: "bg-emerald-500",
       icon: Target,
     },
@@ -695,21 +703,17 @@ function EspacePage() {
     },
     {
       label: "État du dernier audit",
-      value: latestAudit?.score !== null && latestAudit?.score !== undefined
-        ? getMaturityLevel(Math.round((latestAudit.score * maxScore) / 100))
-        : "—",
+      value:
+        latestAudit?.score !== null && latestAudit?.score !== undefined
+          ? getMaturityLevel(Math.round((latestAudit.score * maxScore) / 100))
+          : "—",
       delta: latestAudit ? latestAudit.date : "Aucune donnée",
       color: "bg-violet-500",
       icon: TrendingUp,
     },
   ];
   const progressPercent = totalQuestions
-    ? Math.min(
-        100,
-        Math.round(
-          (answeredCount / totalQuestions) * 100,
-        ),
-      )
+    ? Math.min(100, Math.round((answeredCount / totalQuestions) * 100))
     : 0;
 
   async function handleLogout() {
@@ -873,9 +877,7 @@ function EspacePage() {
   }
 
   function generateDiagnosticReport() {
-    const confirmed = window.confirm(
-      "Voulez-vous télécharger le rapport PDF de diagnostic ?",
-    );
+    const confirmed = window.confirm("Voulez-vous télécharger le rapport PDF de diagnostic ?");
     if (!confirmed) {
       return;
     }
@@ -887,7 +889,18 @@ function EspacePage() {
     const contentWidth = pageWidth - margin * 2;
     let cursorY = margin;
 
-    const addText = (text: string, size: number, options?: { bold?: boolean; color?: [number, number, number] }) => {
+    const ensureSpace = (height: number) => {
+      if (cursorY + height > pageHeight - margin) {
+        document.addPage();
+        cursorY = margin;
+      }
+    };
+
+    const addText = (
+      text: string,
+      size: number,
+      options?: { bold?: boolean; color?: [number, number, number] },
+    ) => {
       if (options?.color) document.setTextColor(...options.color);
       else document.setTextColor(31, 41, 55);
       document.setFont("helvetica", options?.bold ? "bold" : "normal");
@@ -895,10 +908,7 @@ function EspacePage() {
       const lines = document.splitTextToSize(text, contentWidth) as string[];
       const lineHeight = size * 0.45;
 
-      if (cursorY + lines.length * lineHeight > pageHeight - margin) {
-        document.addPage();
-        cursorY = margin;
-      }
+      ensureSpace(lines.length * lineHeight + 2);
       document.text(lines, margin, cursorY);
       cursorY += lines.length * lineHeight;
     };
@@ -909,14 +919,38 @@ function EspacePage() {
       cursorY += 2;
     };
 
-    const recommendationsByCategory = reportRecommendations.reduce<Record<string, typeof reportRecommendations>>(
-      (groups, item) => {
-        groups[item.category] = [...(groups[item.category] ?? []), item];
-        return groups;
-      },
-      {},
-    );
+    const addRecommendationCard = (item: (typeof reportRecommendations)[number], index: number) => {
+      const cardHeight = 23;
+      ensureSpace(cardHeight + 4);
+      document.setFillColor(245, 250, 248);
+      document.roundedRect(margin, cursorY - 4, contentWidth, cardHeight, 3, 3, "F");
+      document.setFillColor(15, 118, 110);
+      document.circle(margin + 8, cursorY + 6, 4, "F");
+      document.setTextColor(255, 255, 255);
+      document.setFont("helvetica", "bold");
+      document.setFontSize(9);
+      document.text(String(index + 1), margin + 6.5, cursorY + 9);
+      document.setTextColor(15, 94, 89);
+      document.setFontSize(10);
+      document.text(`${item.category} - niveau ${item.level}/3`, margin + 16, cursorY + 5);
+      document.setTextColor(55, 65, 81);
+      document.setFont("helvetica", "normal");
+      document.setFontSize(9);
+      const lines = document.splitTextToSize(item.recommendation, contentWidth - 24) as string[];
+      document.text(lines.slice(0, 2), margin + 16, cursorY + 11);
+      cursorY += cardHeight + 4;
+    };
 
+    document.setFillColor(15, 118, 110);
+    document.rect(0, 0, pageWidth, 34, "F");
+    document.setTextColor(255, 255, 255);
+    document.setFont("helvetica", "bold");
+    document.setFontSize(20);
+    document.text("CyberAudit PME", margin, 15);
+    document.setFont("helvetica", "normal");
+    document.setFontSize(9);
+    document.text("Rapport de maturité cybersécurité", margin, 24);
+    cursorY = 48;
     addText("Rapport de diagnostic cybersécurité", 20, {
       bold: true,
       color: [15, 118, 110],
@@ -924,8 +958,19 @@ function EspacePage() {
     addText("CMRPI - Espace Maroc Cyberconfiance", 10);
     addText(`Généré le ${todayLabel}`, 9, { color: [100, 116, 139] });
     cursorY += 5;
-    addText(`Score global : ${scorePoints}/${maxScore} (${scorePercent}%)`, 15, { bold: true });
-    addText(`Niveau de maturité : ${getMaturityLevel(scorePoints)}`, 12, { bold: true });
+    ensureSpace(27);
+    document.setFillColor(234, 247, 240);
+    document.roundedRect(margin, cursorY - 5, contentWidth, 24, 4, 4, "F");
+    document.setTextColor(15, 118, 110);
+    document.setFont("helvetica", "bold");
+    document.setFontSize(18);
+    document.text(`${scorePercent}%`, margin + 10, cursorY + 10);
+    document.setFontSize(10);
+    document.text(`${scorePoints}/${maxScore} points`, margin + 42, cursorY + 5);
+    document.setFont("helvetica", "normal");
+    document.setTextColor(55, 65, 81);
+    document.text(`Niveau : ${getMaturityLevel(scorePoints)}`, margin + 42, cursorY + 12);
+    cursorY += 30;
 
     addSectionTitle("Diagnostic par catégorie");
     if (diagnosticDomains.length === 0) {
@@ -933,18 +978,31 @@ function EspacePage() {
     } else {
       diagnosticDomains.forEach((domain) => {
         addText(`${domain.name} : ${domain.score}%`, 11, { bold: true });
+        ensureSpace(8);
+        document.setFillColor(226, 232, 240);
+        document.roundedRect(margin, cursorY - 4, contentWidth, 4, 2, 2, "F");
+        document.setFillColor(15, 118, 110);
+        document.roundedRect(
+          margin,
+          cursorY - 4,
+          contentWidth * (domain.score / 100),
+          4,
+          2,
+          2,
+          "F",
+        );
+        cursorY += 9;
       });
     }
 
     addSectionTitle("Recommandations");
     if (reportRecommendations.length === 0) {
-      addText("Aucune recommandation prioritaire : les bonnes pratiques notées sont installées.", 10);
+      addText(
+        "Aucune recommandation prioritaire : les bonnes pratiques notées sont installées.",
+        10,
+      );
     } else {
-      Object.entries(recommendationsByCategory).forEach(([category, items]) => {
-        addText(category, 11, { bold: true, color: [17, 94, 89] });
-        items.forEach((item) => addText(`- Niveau ${item.level}/3 : ${item.recommendation}`, 10));
-        cursorY += 2;
-      });
+      reportRecommendations.forEach((item, index) => addRecommendationCard(item, index));
     }
 
     document.save("rapport-diagnostic-cybersecurite.pdf");
@@ -1112,7 +1170,13 @@ function EspacePage() {
                         </span>
                       </div>
                       <p className="mt-5 text-sm text-slate-500">{label}</p>
-                      <p className="mt-2 text-3xl font-bold tracking-tight text-slate-900">
+                      <p
+                        className={`mt-2 font-bold tracking-tight text-slate-900 ${
+                          label === "État du dernier audit"
+                            ? "text-xl leading-tight sm:text-2xl"
+                            : "text-3xl"
+                        }`}
+                      >
                         {value}
                       </p>
                     </div>
@@ -1144,18 +1208,18 @@ function EspacePage() {
                         </p>
                       ) : (
                         domains.map((domain) => (
-                        <div key={domain.name}>
-                          <div className="mb-2 flex items-center justify-between text-sm">
-                            <span className="font-medium text-slate-700">{domain.name}</span>
-                            <span className="text-slate-500">{domain.score}%</span>
+                          <div key={domain.name}>
+                            <div className="mb-2 flex items-center justify-between text-sm">
+                              <span className="font-medium text-slate-700">{domain.name}</span>
+                              <span className="text-slate-500">{domain.score}%</span>
+                            </div>
+                            <div className="h-2.5 rounded-full bg-slate-100">
+                              <div
+                                className="h-2.5 rounded-full bg-gradient-to-r from-primary to-cyan-500"
+                                style={{ width: `${Math.min(100, Math.max(0, domain.score))}%` }}
+                              />
+                            </div>
                           </div>
-                          <div className="h-2.5 rounded-full bg-slate-100">
-                            <div
-                              className="h-2.5 rounded-full bg-gradient-to-r from-primary to-cyan-500"
-                              style={{ width: `${Math.min(100, Math.max(0, domain.score))}%` }}
-                            />
-                          </div>
-                        </div>
                         ))
                       )}
                     </div>
@@ -1176,24 +1240,34 @@ function EspacePage() {
                         weakestDomains.map((domain, index) => (
                           <div
                             key={domain.name}
-                            className={`rounded-2xl border p-4 ${
+                            className={`rounded-2xl border p-4 shadow-sm transition-colors ${
                               domain.score < 50
-                                ? "border-amber-200 bg-amber-50"
-                                : "border-emerald-200 bg-emerald-50"
+                                ? "border-rose-200 bg-rose-50/70"
+                                : "border-primary/15 bg-primary-soft/60"
                             }`}
                           >
-                            <div className="flex items-center gap-2 text-slate-700">
+                            <div className="flex items-center gap-2 text-slate-800">
                               {domain.score < 50 ? (
-                                <AlertTriangle className="h-4 w-4 text-amber-700" />
+                                <AlertTriangle className="h-4 w-4 text-rose-600" />
                               ) : (
-                                <CheckCircle2 className="h-4 w-4 text-emerald-700" />
+                                <CheckCircle2 className="h-4 w-4 text-primary" />
                               )}
-                              <span className="font-semibold">Priorité {index + 1}</span>
-                              <span className="ml-auto text-sm font-semibold">
+                              <span className="text-xs font-bold uppercase tracking-[0.16em] text-slate-500">
+                                Priorité {String(index + 1).padStart(2, "0")}
+                              </span>
+                              <span className="ml-auto rounded-full bg-white/80 px-2.5 py-1 text-sm font-bold text-slate-700">
                                 {domain.score}%
                               </span>
                             </div>
-                            <p className="mt-2 text-sm text-slate-700">{domain.name}</p>
+                            <p className="mt-3 text-sm font-semibold text-slate-800">
+                              {domain.name}
+                            </p>
+                            <div className="mt-3 h-1.5 rounded-full bg-white/80">
+                              <div
+                                className={`h-1.5 rounded-full ${domain.score < 50 ? "bg-rose-500" : "bg-primary"}`}
+                                style={{ width: `${Math.min(100, Math.max(0, domain.score))}%` }}
+                              />
+                            </div>
                           </div>
                         ))
                       )}
@@ -1241,29 +1315,29 @@ function EspacePage() {
                           </tr>
                         ) : (
                           auditHistory.map((audit) => (
-                          <tr key={audit.id} className="border-b border-slate-100 text-sm">
-                            <td className="py-4 pr-4 font-medium text-slate-800">{audit.name}</td>
-                            <td className="py-4 pr-4 text-slate-600">{audit.date}</td>
-                            <td className="py-4 pr-4 text-slate-600">{audit.scope}</td>
-                            <td className="py-4 pr-4">
-                              <span className="inline-flex rounded-full bg-slate-100 px-2.5 py-1 font-semibold text-slate-700">
-                                {audit.score === null ? "—" : `${audit.score}%`}
-                              </span>
-                            </td>
-                            <td className="py-4">
-                              <span
-                                className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${
-                                  audit.status === "Validé"
-                                    ? "bg-emerald-100 text-emerald-700"
-                                    : audit.status === "En cours"
-                                      ? "bg-blue-100 text-blue-700"
-                                      : "bg-amber-100 text-amber-700"
-                                }`}
-                              >
-                                {audit.status}
-                              </span>
-                            </td>
-                          </tr>
+                            <tr key={audit.id} className="border-b border-slate-100 text-sm">
+                              <td className="py-4 pr-4 font-medium text-slate-800">{audit.name}</td>
+                              <td className="py-4 pr-4 text-slate-600">{audit.date}</td>
+                              <td className="py-4 pr-4 text-slate-600">{audit.scope}</td>
+                              <td className="py-4 pr-4">
+                                <span className="inline-flex rounded-full bg-slate-100 px-2.5 py-1 font-semibold text-slate-700">
+                                  {audit.score === null ? "—" : `${audit.score}%`}
+                                </span>
+                              </td>
+                              <td className="py-4">
+                                <span
+                                  className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${
+                                    audit.status === "Validé"
+                                      ? "bg-emerald-100 text-emerald-700"
+                                      : audit.status === "En cours"
+                                        ? "bg-blue-100 text-blue-700"
+                                        : "bg-amber-100 text-amber-700"
+                                  }`}
+                                >
+                                  {audit.status}
+                                </span>
+                              </td>
+                            </tr>
                           ))
                         )}
                       </tbody>
@@ -1290,7 +1364,9 @@ function EspacePage() {
                     </div>
                     <div className="rounded-2xl bg-slate-50 p-4">
                       <p className="text-sm text-slate-500">Secteur</p>
-                      <p className="mt-2 text-lg font-semibold">{companySector || "Non renseigné"}</p>
+                      <p className="mt-2 text-lg font-semibold">
+                        {companySector || "Non renseigné"}
+                      </p>
                     </div>
                     <div className="rounded-2xl bg-slate-50 p-4">
                       <p className="text-sm text-slate-500">Effectif</p>
@@ -1398,22 +1474,36 @@ function EspacePage() {
                         onChange={(event) => setCompanySector(event.target.value)}
                         className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2.5 outline-none transition focus:border-primary"
                       >
-                        <option value="" disabled>Sélectionner un secteur</option>
-                        {SECTORS.map((sector) => <option key={sector} value={sector}>{sector}</option>)}
+                        <option value="" disabled>
+                          Sélectionner un secteur
+                        </option>
+                        {SECTORS.map((sector) => (
+                          <option key={sector} value={sector}>
+                            {sector}
+                          </option>
+                        ))}
                       </select>
                     </label>
                   </div>
 
                   <div className="space-y-5">
                     <label className="block">
-                      <span className="mb-2 block text-sm font-medium text-slate-700">Taille de l’entreprise</span>
+                      <span className="mb-2 block text-sm font-medium text-slate-700">
+                        Taille de l’entreprise
+                      </span>
                       <select
                         value={companySize}
                         onChange={(event) => setCompanySize(event.target.value)}
                         className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2.5 outline-none transition focus:border-primary"
                       >
-                        <option value="" disabled>Sélectionner une taille</option>
-                        {COMPANY_SIZES.map((size) => <option key={size} value={size}>{size}</option>)}
+                        <option value="" disabled>
+                          Sélectionner une taille
+                        </option>
+                        {COMPANY_SIZES.map((size) => (
+                          <option key={size} value={size}>
+                            {size}
+                          </option>
+                        ))}
                       </select>
                     </label>
                     <label className="block">
@@ -1423,8 +1513,14 @@ function EspacePage() {
                         onChange={(event) => setCompanyRegion(event.target.value)}
                         className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2.5 outline-none transition focus:border-primary"
                       >
-                        <option value="" disabled>Sélectionner une région</option>
-                        {REGIONS.map((region) => <option key={region} value={region}>{region}</option>)}
+                        <option value="" disabled>
+                          Sélectionner une région
+                        </option>
+                        {REGIONS.map((region) => (
+                          <option key={region} value={region}>
+                            {region}
+                          </option>
+                        ))}
                       </select>
                     </label>
                     <label className="block">
@@ -1505,35 +1601,35 @@ function EspacePage() {
                     </p>
                   ) : (
                     auditHistory.map((item) => (
-                    <div
-                      key={item.id}
-                      className="rounded-2xl border border-slate-200 bg-slate-50 p-4"
-                    >
-                      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                        <div>
-                          <p className="text-base font-semibold text-slate-900">{item.name}</p>
-                          <p className="mt-1 text-sm text-slate-500">
-                            {item.date} • {item.scope}
-                          </p>
-                        </div>
-                        <div className="flex items-center gap-3">
-                          <span className="rounded-full bg-white px-3 py-1 text-sm font-semibold text-slate-700">
-                            {item.score === null ? "—" : `${item.score}%`}
-                          </span>
-                          <span
-                            className={`rounded-full px-2.5 py-1 text-xs font-semibold ${
-                              item.status === "Validé"
-                                ? "bg-emerald-100 text-emerald-700"
-                                : item.status === "En cours"
-                                  ? "bg-blue-100 text-blue-700"
-                                  : "bg-amber-100 text-amber-700"
-                            }`}
-                          >
-                            {item.status}
-                          </span>
+                      <div
+                        key={item.id}
+                        className="rounded-2xl border border-slate-200 bg-slate-50 p-4"
+                      >
+                        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                          <div>
+                            <p className="text-base font-semibold text-slate-900">{item.name}</p>
+                            <p className="mt-1 text-sm text-slate-500">
+                              {item.date} • {item.scope}
+                            </p>
+                          </div>
+                          <div className="flex items-center gap-3">
+                            <span className="rounded-full bg-white px-3 py-1 text-sm font-semibold text-slate-700">
+                              {item.score === null ? "—" : `${item.score}%`}
+                            </span>
+                            <span
+                              className={`rounded-full px-2.5 py-1 text-xs font-semibold ${
+                                item.status === "Validé"
+                                  ? "bg-emerald-100 text-emerald-700"
+                                  : item.status === "En cours"
+                                    ? "bg-blue-100 text-blue-700"
+                                    : "bg-amber-100 text-amber-700"
+                              }`}
+                            >
+                              {item.status}
+                            </span>
+                          </div>
                         </div>
                       </div>
-                    </div>
                     ))
                   )}
                 </div>
@@ -1727,7 +1823,7 @@ function EspacePage() {
                         </div>
 
                         <div className="mt-6 space-y-3 text-sm text-slate-600">
-                            {diagnosticDomains.map((domain) => (
+                          {diagnosticDomains.map((domain) => (
                             <div
                               key={domain.name}
                               className="flex items-center justify-between rounded-2xl border border-slate-200 bg-white p-3"
@@ -1781,21 +1877,45 @@ function EspacePage() {
                           </div>
                         </div>
 
-                        <div className="rounded-3xl border border-slate-200 bg-white p-5">
-                          <p className="text-sm font-semibold text-slate-800">
-                            Recommandations prioritaires
-                          </p>
+                        <div className="rounded-3xl border border-primary/15 bg-white p-5 shadow-sm">
+                          <div className="flex items-start justify-between gap-4">
+                            <div>
+                              <p className="text-xs font-bold uppercase tracking-[0.18em] text-primary">
+                                Plan d’amélioration
+                              </p>
+                              <p className="mt-2 text-lg font-semibold text-slate-900">
+                                Recommandations prioritaires
+                              </p>
+                            </div>
+                            <span className="rounded-full bg-primary-soft px-2.5 py-1 text-xs font-bold text-primary">
+                              {reportRecommendations.length}
+                            </span>
+                          </div>
                           {reportRecommendations.length === 0 ? (
-                            <p className="mt-3 text-sm text-slate-500">
+                            <p className="mt-4 rounded-2xl bg-slate-50 p-4 text-sm text-slate-500">
                               Aucune recommandation prioritaire pour les réponses enregistrées.
                             </p>
                           ) : (
-                            <ul className="mt-4 space-y-3 text-sm text-slate-600">
-                              {reportRecommendations.map((item) => (
-                                <li key={item.question} className="rounded-2xl bg-slate-50 p-3">
-                                  <p className="font-medium text-slate-800">{item.category}</p>
-                                  <p className="mt-1">Niveau obtenu : {item.level}/3</p>
-                                  <p className="mt-1">{item.recommendation}</p>
+                            <ul className="mt-5 space-y-3 text-sm text-slate-600">
+                              {reportRecommendations.map((item, index) => (
+                                <li
+                                  key={item.question}
+                                  className="rounded-2xl border border-slate-100 bg-slate-50/80 p-4"
+                                >
+                                  <div className="flex items-start gap-3">
+                                    <span className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-primary text-xs font-bold text-primary-foreground">
+                                      {String(index + 1).padStart(2, "0")}
+                                    </span>
+                                    <div>
+                                      <p className="font-semibold text-slate-800">
+                                        {item.category}
+                                      </p>
+                                      <p className="mt-1 text-xs font-medium text-primary">
+                                        Niveau obtenu : {item.level}/3
+                                      </p>
+                                      <p className="mt-2 leading-6">{item.recommendation}</p>
+                                    </div>
+                                  </div>
                                 </li>
                               ))}
                             </ul>
