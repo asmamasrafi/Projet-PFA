@@ -264,7 +264,7 @@ function Index() {
               <dl className="rise mt-10 grid grid-cols-3 gap-4" style={{ animationDelay: "320ms" }}>
                 {[
                   ["5 min", "de test"],
-                  ["30", "questions"],
+                  ["24", "questions"],
                   ["100%", "confidentiel"],
                 ].map(([v, l]) => (
                   <div key={l} className="rounded-2xl border border-border bg-card/70 p-3">

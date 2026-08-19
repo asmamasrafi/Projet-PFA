@@ -355,6 +355,20 @@ const auditQuestions = auditAxes.flatMap((axis) =>
   })),
 );
 
+type AuditQuestion = {
+  id: string | null;
+  category: string;
+  noted: boolean;
+  question: string;
+  options: string[];
+};
+
+const fallbackQuestions: AuditQuestion[] = auditQuestions.map((question) => ({
+  ...question,
+  id: null,
+  options: [...question.options],
+}));
+
 export const Route = createFileRoute("/espace")({
   head: () => ({
     meta: [
@@ -374,11 +388,15 @@ function EspacePage() {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
   const [email, setEmail] = useState<string | null>(null);
+  const [userId, setUserId] = useState<string | null>(null);
   const [role, setRole] = useState<"pme" | "auditor" | "admin" | "unknown">("unknown");
   const [activeTab, setActiveTab] = useState<TabId>("overview");
   const [auditStarted, setAuditStarted] = useState(false);
   const [currentQuestion, setCurrentQuestion] = useState(0);
   const [answers, setAnswers] = useState<Record<number, string>>({});
+  const [questions, setQuestions] = useState<AuditQuestion[]>(fallbackQuestions);
+  const [auditId, setAuditId] = useState<string | null>(null);
+  const [auditError, setAuditError] = useState<string | null>(null);
   const [reportGenerated, setReportGenerated] = useState(false);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
 
@@ -396,6 +414,7 @@ function EspacePage() {
       }
 
       if (!active) return;
+      setUserId(session.user.id);
       setEmail(session.user.email ?? null);
 
       try {
@@ -414,6 +433,67 @@ function EspacePage() {
               : "pme";
 
         setRole(detectedRole);
+
+        if (detectedRole === "pme") {
+          const [{ data: company }, { data: questionRows }] = await Promise.all([
+            supabase.from("companies").select("id").eq("owner_id", session.user.id).maybeSingle(),
+            supabase
+              .from("audit_questions")
+              .select("id, axis, question, options, noted, sort_order")
+              .eq("active", true)
+              .order("sort_order", { ascending: true }),
+          ]);
+
+          if (questionRows?.length) {
+            setQuestions(
+              questionRows.map((question) => ({
+                id: question.id,
+                category: question.axis,
+                noted: question.noted,
+                question: question.question,
+                options: Array.isArray(question.options)
+                  ? question.options.filter(
+                      (option): option is string => typeof option === "string",
+                    )
+                  : [],
+              })),
+            );
+          }
+
+          if (company) {
+            const { data: draft } = await supabase
+              .from("audits")
+              .select("id")
+              .eq("owner_id", session.user.id)
+              .eq("company_id", company.id)
+              .eq("status", "draft")
+              .order("created_at", { ascending: false })
+              .limit(1)
+              .maybeSingle();
+
+            if (draft) {
+              setAuditId(draft.id);
+              const { data: savedAnswers } = await supabase
+                .from("audit_answers")
+                .select("question_id, answer")
+                .eq("audit_id", draft.id);
+
+              if (savedAnswers?.length && questionRows?.length) {
+                const questionIndexes = new Map(
+                  questionRows.map((question, index) => [question.id, index]),
+                );
+                setAnswers(
+                  Object.fromEntries(
+                    savedAnswers.flatMap((answer) => {
+                      const index = questionIndexes.get(answer.question_id);
+                      return index === undefined ? [] : [[index, answer.answer]];
+                    }),
+                  ),
+                );
+              }
+            }
+          }
+        }
       } catch {
         const { data: profile } = await supabase
           .from("profiles")
@@ -438,37 +518,89 @@ function EspacePage() {
     };
   }, [navigate]);
 
-  const totalQuestions = auditQuestions.length;
+  const totalQuestions = questions.length;
   const answeredCount = Object.keys(answers).length;
 
   const scorePercent = useMemo(() => {
     const scoredAnswers = Object.entries(answers).filter(
-      ([questionIndex]) => auditQuestions[Number(questionIndex)]?.noted,
+      ([questionIndex]) => questions[Number(questionIndex)]?.noted,
     );
 
     if (scoredAnswers.length === 0) return 0;
 
     const total = scoredAnswers.reduce(
       (sum, [questionIndex, value]) =>
-        sum + auditQuestions[Number(questionIndex)].options.indexOf(value),
+        sum + questions[Number(questionIndex)].options.indexOf(value),
       0,
     );
     return Math.round((total / (scoredAnswers.length * 3)) * 100);
-  }, [answers]);
+  }, [answers, questions]);
 
-  const currentQuestionData = auditQuestions[currentQuestion];
+  const currentQuestionData = questions[currentQuestion];
 
   async function handleLogout() {
     await supabase.auth.signOut();
     void navigate({ to: "/" });
   }
 
-  function handleAnswer(value: string) {
+  async function handleAnswer(value: string) {
     setAnswers((prev) => ({ ...prev, [currentQuestion]: value }));
+
+    const questionId = currentQuestionData.id;
+    if (auditId && questionId) {
+      const { error } = await supabase.from("audit_answers").upsert(
+        {
+          audit_id: auditId,
+          question_id: questionId,
+          answer: value,
+          score: currentQuestionData.noted ? currentQuestionData.options.indexOf(value) : null,
+        },
+        { onConflict: "audit_id,question_id" },
+      );
+
+      if (error) setAuditError("La réponse n'a pas pu être enregistrée. Réessayez.");
+    }
 
     if (currentQuestion < totalQuestions - 1) {
       setCurrentQuestion((prev) => prev + 1);
     }
+  }
+
+  async function startAudit() {
+    setAuditError(null);
+    if (auditId) {
+      setAuditStarted(true);
+      return;
+    }
+
+    if (!userId) return;
+    const { data: company } = await supabase
+      .from("companies")
+      .select("id")
+      .eq("owner_id", userId)
+      .maybeSingle();
+
+    if (!company) {
+      setAuditError("Votre entreprise n'est pas encore configurée.");
+      return;
+    }
+
+    const { data: audit, error } = await supabase
+      .from("audits")
+      .insert({ company_id: company.id, owner_id: userId })
+      .select("id")
+      .single();
+
+    if (error || !audit) {
+      console.error("startAudit error:", error);
+      setAuditError(
+        `Impossible de démarrer l'audit. Vérifiez que la base de données est à jour. (${error?.message ?? "erreur inconnue"})`,
+      );
+      return;
+    }
+
+    setAuditId(audit.id);
+    setAuditStarted(true);
   }
 
   function resetAudit() {
@@ -479,7 +611,17 @@ function EspacePage() {
     setActiveTab("audit");
   }
 
-  function generateReport() {
+  async function generateReport() {
+    if (auditId) {
+      await supabase
+        .from("audits")
+        .update({
+          status: "submitted",
+          score: scorePercent,
+          submitted_at: new Date().toISOString(),
+        })
+        .eq("id", auditId);
+    }
     setReportGenerated(true);
   }
 
@@ -990,6 +1132,11 @@ function EspacePage() {
 
             {activeTab === "audit" && (
               <section className="space-y-6">
+                {auditError && (
+                  <p className="rounded-xl border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+                    {auditError}
+                  </p>
+                )}
                 {!auditStarted ? (
                   <div className="rounded-[28px] border border-slate-200 bg-white p-6 shadow-sm">
                     <div className="flex items-start justify-between gap-4">
@@ -1041,7 +1188,7 @@ function EspacePage() {
                     <div className="mt-8 flex flex-wrap gap-3">
                       <button
                         type="button"
-                        onClick={() => setAuditStarted(true)}
+                        onClick={() => void startAudit()}
                         className="inline-flex items-center gap-2 rounded-2xl bg-primary px-5 py-3 text-sm font-semibold text-primary-foreground shadow-soft"
                       >
                         Commencer l’audit
