@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { LucideIcon } from "lucide-react";
 import {
   Archive,
@@ -22,6 +22,7 @@ import {
   Users,
   X,
 } from "lucide-react";
+import { supabase } from "@/integrations/supabase/client";
 
 type AuditorTab = "overview" | "missions" | "companies" | "reports" | "profile";
 type MissionStatus = "À planifier" | "En cours" | "À valider" | "Clôturée";
@@ -30,6 +31,8 @@ type Mission = {
   id: string;
   company: string;
   sector: string;
+  size: string;
+  region: string;
   status: MissionStatus;
   progress: number;
   due: string;
@@ -38,57 +41,6 @@ type Mission = {
   contact: string;
   updated: string;
 };
-
-const missions: Mission[] = [
-  {
-    id: "CA-2048",
-    company: "Atlas Industrie",
-    sector: "Industrie",
-    status: "En cours",
-    progress: 68,
-    due: "22 août 2026",
-    score: null,
-    risk: "Élevé",
-    contact: "Nadia El Mansouri",
-    updated: "Mis à jour il y a 2 h",
-  },
-  {
-    id: "CA-2044",
-    company: "Noria Services",
-    sector: "Services",
-    status: "À valider",
-    progress: 100,
-    due: "19 août 2026",
-    score: 74,
-    risk: "Modéré",
-    contact: "Youssef Amrani",
-    updated: "Mis à jour hier",
-  },
-  {
-    id: "CA-2039",
-    company: "Medina Retail",
-    sector: "Commerce",
-    status: "À planifier",
-    progress: 0,
-    due: "28 août 2026",
-    score: null,
-    risk: "Modéré",
-    contact: "Sara Bennani",
-    updated: "Reçue il y a 3 j",
-  },
-  {
-    id: "CA-2028",
-    company: "OxyTech",
-    sector: "Technologie",
-    status: "Clôturée",
-    progress: 100,
-    due: "12 août 2026",
-    score: 86,
-    risk: "Faible",
-    contact: "Amine Tazi",
-    updated: "Clôturée le 12 août",
-  },
-];
 
 const navItems: { id: AuditorTab; label: string; icon: LucideIcon }[] = [
   { id: "overview", label: "Vue d'ensemble", icon: LayoutDashboard },
@@ -116,9 +68,145 @@ export function AuditorSpace({ email, onLogout }: { email: string | null; onLogo
   const [mobileOpen, setMobileOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<MissionStatus | "Toutes">("Toutes");
+  const [missions, setMissions] = useState<Mission[]>([]);
   const [selected, setSelected] = useState<Mission | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [auditorName, setAuditorName] = useState("Auditeur CyberAudit");
+  const [auditorEntity, setAuditorEntity] = useState("Cabinet auditeur");
+  const [auditorVerified, setAuditorVerified] = useState(false);
   const [notes, setNotes] = useState("");
   const [saved, setSaved] = useState(false);
+  const auditorInitials = (email ?? "AU")
+    .split(/[\s@._-]+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase())
+    .join("") || "AU";
+  const todayLabel = new Intl.DateTimeFormat("fr-FR", {
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+  }).format(new Date());
+
+  useEffect(() => {
+    let active = true;
+
+    async function loadMissions() {
+      setLoading(true);
+      setLoadError(null);
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+
+      if (!user) {
+        if (active) {
+          setLoadError("Session auditeur introuvable.");
+          setLoading(false);
+        }
+        return;
+      }
+
+      const [{ data: profile }, { data: auditorProfile }] = await Promise.all([
+        supabase.from("profiles").select("first_name, last_name").eq("id", user.id).maybeSingle(),
+        supabase.from("auditor_profiles").select("entity, verified").eq("user_id", user.id).maybeSingle(),
+      ]);
+      const fullName = `${profile?.first_name ?? ""} ${profile?.last_name ?? ""}`.trim();
+      if (active) {
+        setAuditorName(fullName || "Auditeur CyberAudit");
+        setAuditorEntity(auditorProfile?.entity || "Cabinet auditeur");
+        setAuditorVerified(Boolean(auditorProfile?.verified));
+      }
+
+      const [{ data: companies, error: companiesError }, { data: audits, error: auditsError }, { data: answers }] = await Promise.all([
+        supabase.from("companies").select("id, name, sector, size, region, updated_at").order("name"),
+        supabase
+          .from("audits")
+          .select("id, company_id, status, score, updated_at, submitted_at")
+          .order("updated_at", { ascending: false }),
+        supabase.from("audit_answers").select("audit_id"),
+      ]);
+
+      if (auditsError) {
+        if (active) {
+          setLoadError("Les audits PME ne peuvent pas être chargés.");
+          setLoading(false);
+        }
+        return;
+      }
+
+      if (companiesError) {
+        if (active) {
+          setLoadError("Les dossiers PME ne peuvent pas être chargés.");
+          setLoading(false);
+        }
+        return;
+      }
+
+      const companyById = new Map((companies ?? []).map((company) => [company.id, company]));
+      const answersByAudit = new Map<string, number>();
+      (answers ?? []).forEach((answer) => {
+        answersByAudit.set(answer.audit_id, (answersByAudit.get(answer.audit_id) ?? 0) + 1);
+      });
+      const formattedMissions = (audits ?? []).map((audit) => {
+        const company = companyById.get(audit.company_id);
+        const answerCount = answersByAudit.get(audit.id) ?? 0;
+        const progress = Math.min(100, Math.round((answerCount / 24) * 100));
+        const status: MissionStatus =
+          audit.status === "completed"
+            ? "Clôturée"
+            : audit.status === "submitted" || audit.status === "in_review"
+              ? "À valider"
+              : progress > 0
+                ? "En cours"
+                : "À planifier";
+        const score = audit.score;
+        const risk: Mission["risk"] = score === null ? "Élevé" : score < 50 ? "Élevé" : score < 75 ? "Modéré" : "Faible";
+        const date = audit.submitted_at ?? audit.updated_at;
+
+        return {
+          id: audit.id,
+          company: company?.name || "PME non renseignée",
+          sector: company?.sector || "Secteur non renseigné",
+          size: company?.size || "Taille non renseignée",
+          region: company?.region || "Région non renseignée",
+          status,
+          progress,
+          due: new Intl.DateTimeFormat("fr-FR", { day: "2-digit", month: "short", year: "numeric" }).format(new Date(date)),
+          score,
+          risk,
+          contact: "Compte PME",
+          updated: `Mis à jour le ${new Intl.DateTimeFormat("fr-FR", { day: "2-digit", month: "short" }).format(new Date(audit.updated_at))}`,
+        } satisfies Mission;
+      });
+      const companiesWithoutAudits = (companies ?? [])
+        .filter((company) => !(audits ?? []).some((audit) => audit.company_id === company.id))
+        .map((company) => ({
+          id: `company-${company.id}`,
+          company: company.name || "PME non renseignée",
+          sector: company.sector || "Secteur non renseigné",
+          size: company.size || "Taille non renseignée",
+          region: company.region || "Région non renseignée",
+          status: "À planifier" as const,
+          progress: 0,
+          due: "À planifier",
+          score: null,
+          risk: "Modéré" as const,
+          contact: "Compte PME",
+          updated: `Entreprise mise à jour le ${new Intl.DateTimeFormat("fr-FR", { day: "2-digit", month: "short" }).format(new Date(company.updated_at))}`,
+        } satisfies Mission));
+
+      if (active) {
+        setMissions([...formattedMissions, ...companiesWithoutAudits]);
+        setLoading(false);
+      }
+    }
+
+    void loadMissions();
+    return () => {
+      active = false;
+    };
+  }, []);
 
   const filteredMissions = useMemo(() => {
     const normalized = query.trim().toLowerCase();
@@ -135,6 +223,8 @@ export function AuditorSpace({ email, onLogout }: { email: string | null; onLogo
     setMobileOpen(false);
     setSelected(null);
   }
+
+  const actionableCount = missions.filter((mission) => mission.status === "À valider" || mission.status === "En cours").length;
 
   return (
     <div className="min-h-screen bg-slate-100 text-slate-900">
@@ -170,8 +260,10 @@ export function AuditorSpace({ email, onLogout }: { email: string | null; onLogo
                 <UserCircle2 className="size-5 text-primary" />
               </span>
               <div className="min-w-0">
-                <p className="truncate text-sm font-semibold">Cabinet auditeur</p>
-                <p className="truncate text-xs text-slate-500">CMRPI · Vérifié</p>
+                <p className="truncate text-sm font-semibold">{auditorName}</p>
+                <p className="truncate text-xs text-slate-500">
+                  {auditorEntity} · {auditorVerified ? "Vérifié" : "En vérification"}
+                </p>
               </div>
             </div>
             <p className="mt-3 truncate text-xs text-slate-600">{email ?? "Compte auditeur"}</p>
@@ -200,9 +292,9 @@ export function AuditorSpace({ email, onLogout }: { email: string | null; onLogo
             <div className="flex items-center gap-2 text-xs font-semibold text-primary">
               <Bell className="size-4" /> À traiter cette semaine
             </div>
-            <p className="mt-3 text-3xl font-semibold">07</p>
+            <p className="mt-3 text-3xl font-semibold">{actionableCount}</p>
             <p className="mt-1 text-xs leading-5 text-slate-500">
-              2 validations et 5 actions de suivi
+              {actionableCount === 0 ? "Aucune mission à traiter" : "Missions à suivre ou valider"}
             </p>
           </div>
           <button
@@ -232,7 +324,7 @@ export function AuditorSpace({ email, onLogout }: { email: string | null; onLogo
                 </p>
                 <h1 className="mt-1 text-2xl font-semibold tracking-tight">
                   {activeTab === "overview"
-                    ? "Bonjour, auditeur"
+                    ? `Bonjour, ${auditorName}`
                     : navItems.find((item) => item.id === activeTab)?.label}
                 </h1>
               </div>
@@ -240,24 +332,33 @@ export function AuditorSpace({ email, onLogout }: { email: string | null; onLogo
             <div className="flex items-center gap-2 sm:gap-4">
               <div className="hidden items-center gap-2 text-sm text-slate-500 sm:flex">
                 <CalendarDays className="size-4" />
-                19 août 2026
+                {todayLabel}
               </div>
               <button
                 type="button"
                 aria-label="Notifications"
-                className="relative rounded-xl border border-slate-200 bg-white p-2.5 text-slate-600"
+                onClick={() => selectTab("missions")}
+                className="relative rounded-xl border border-slate-200 bg-white p-2.5 text-slate-600 transition hover:border-primary/30 hover:text-primary"
               >
                 <Bell className="size-4" />
-                <span className="absolute right-1.5 top-1.5 size-1.5 rounded-full bg-rose-500" />
+                {actionableCount > 0 && (
+                  <span className="absolute -right-2 -top-2 flex min-h-5 min-w-5 items-center justify-center rounded-full bg-rose-500 px-1 text-[10px] font-bold text-white">
+                    {actionableCount > 9 ? "9+" : actionableCount}
+                  </span>
+                )}
               </button>
               <span className="hidden size-9 items-center justify-center rounded-full bg-primary-soft text-sm font-bold text-primary sm:flex">
-                AM
+                {auditorInitials}
               </span>
             </div>
           </header>
 
           <main className="py-7">
-            {activeTab === "overview" && <Overview onNavigate={selectTab} onSelect={setSelected} />}
+            {loadError && <p className="mb-5 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{loadError}</p>}
+            {loading && <p className="mb-5 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-500">Chargement des PME et audits...</p>}
+            {activeTab === "overview" && (
+              <Overview missions={missions} onNavigate={selectTab} onSelect={setSelected} />
+            )}
             {activeTab === "missions" && (
               <MissionList
                 missions={filteredMissions}
@@ -271,8 +372,10 @@ export function AuditorSpace({ email, onLogout }: { email: string | null; onLogo
             {activeTab === "companies" && (
               <CompanyList missions={missions} onSelect={setSelected} />
             )}
-            {activeTab === "reports" && <Reports />}
-            {activeTab === "profile" && <Profile email={email} />}
+            {activeTab === "reports" && <Reports missions={missions} />}
+            {activeTab === "profile" && (
+              <Profile email={email} name={auditorName} entity={auditorEntity} verified={auditorVerified} />
+            )}
           </main>
         </div>
       </div>
@@ -295,9 +398,11 @@ export function AuditorSpace({ email, onLogout }: { email: string | null; onLogo
 }
 
 function Overview({
+  missions,
   onNavigate,
   onSelect,
 }: {
+  missions: Mission[];
   onNavigate: (tab: AuditorTab) => void;
   onSelect: (mission: Mission) => void;
 }) {
@@ -306,29 +411,38 @@ function Overview({
       <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <Stat
           label="Missions actives"
-          value="04"
-          detail="+1 cette semaine"
+          value={String(missions.filter((mission) => mission.status !== "Clôturée").length)}
+          detail="Selon les audits de la plateforme"
           icon={ClipboardCheck}
           tone="lime"
         />
         <Stat
           label="Dossiers suivis"
-          value="12"
-          detail="3 nouveaux clients"
+          value={String(new Set(missions.map((mission) => mission.company)).size)}
+          detail="PME suivies"
           icon={Users}
           tone="teal"
         />
         <Stat
           label="À valider"
-          value="02"
-          detail="Échéance aujourd'hui"
+          value={String(missions.filter((mission) => mission.status === "À valider").length)}
+          detail="Audits à valider"
           icon={BookOpenCheck}
           tone="amber"
         />
         <Stat
           label="Score moyen"
-          value="78%"
-          detail="Sur 8 audits clôturés"
+          value={
+            missions.filter((mission) => mission.score !== null).length
+              ? `${Math.round(
+                  missions
+                    .filter((mission) => mission.score !== null)
+                    .reduce((total, mission) => total + (mission.score ?? 0), 0) /
+                    missions.filter((mission) => mission.score !== null).length,
+                )}%`
+              : "—"
+          }
+          detail="Sur les audits avec score"
           icon={FileBarChart}
           tone="violet"
         />
@@ -351,7 +465,11 @@ function Overview({
             </button>
           </div>
           <div className="mt-6 space-y-3">
-            {missions.slice(0, 3).map((mission) => (
+            {missions.length === 0 ? (
+              <p className="rounded-2xl bg-slate-50 p-4 text-sm text-slate-500">
+                Aucune PME ou aucun audit n'est encore enregistré.
+              </p>
+            ) : missions.slice(0, 3).map((mission) => (
               <button
                 key={mission.id}
                 type="button"
@@ -394,16 +512,27 @@ function Overview({
           <p className="mt-7 text-xs font-bold uppercase tracking-[0.18em] text-primary-foreground/80">
             Qualité d'audit
           </p>
-          <h2 className="mt-2 text-2xl font-semibold">Votre activité est à jour.</h2>
+          <h2 className="mt-2 text-2xl font-semibold">
+            {missions.length === 0 ? "Aucune donnée PME disponible." : "Votre activité auditeur"}
+          </h2>
           <p className="mt-3 text-sm leading-6 text-primary-foreground/75">
-            4 missions suivies, 92% des livrables déposés dans les délais.
+            {missions.length === 0
+              ? "Les PME et audits disponibles apparaîtront ici."
+              : `${missions.filter((mission) => mission.status === "Clôturée").length} audit(s) clôturé(s) sur ${missions.length}.`}
           </p>
           <div className="mt-7 h-2 rounded-full bg-primary-foreground/20">
-            <div className="h-2 w-[92%] rounded-full bg-primary-foreground" />
+            <div
+              className="h-2 rounded-full bg-primary-foreground"
+              style={{
+                width: `${missions.length ? Math.round((missions.filter((mission) => mission.status === "Clôturée").length / missions.length) * 100) : 0}%`,
+              }}
+            />
           </div>
           <div className="mt-3 flex justify-between text-xs text-primary-foreground/70">
             <span>Progression du mois</span>
-            <span className="font-semibold text-white">92%</span>
+            <span className="font-semibold text-white">
+              {missions.length ? Math.round((missions.filter((mission) => mission.status === "Clôturée").length / missions.length) * 100) : 0}%
+            </span>
           </div>
           <button
             type="button"
@@ -423,9 +552,12 @@ function Overview({
           <CalendarDays className="size-5 text-slate-400" />
         </div>
         <div className="mt-5 grid gap-3 md:grid-cols-3">
-          <Deadline date="Aujourd'hui" title="Valider le rapport Noria Services" urgent />
-          <Deadline date="22 août" title="Point d'avancement Atlas Industrie" />
-          <Deadline date="28 août" title="Démarrage Medina Retail" />
+          {missions.filter((mission) => mission.status !== "Clôturée").slice(0, 3).map((mission) => (
+            <Deadline key={mission.id} date={mission.due} title={`${mission.status} · ${mission.company}`} urgent={mission.status === "À valider"} />
+          ))}
+          {missions.filter((mission) => mission.status !== "Clôturée").length === 0 && (
+            <p className="text-sm text-slate-500">Aucune échéance active.</p>
+          )}
         </div>
       </section>
     </div>
@@ -634,7 +766,7 @@ function CompanyList({
             </div>
             <h3 className="mt-5 font-semibold">{mission.company}</h3>
             <p className="mt-1 text-sm text-slate-500">
-              {mission.sector} · {mission.contact}
+              {mission.sector} · {mission.size} · {mission.region}
             </p>
             <div className="mt-5 flex items-center justify-between border-t border-slate-100 pt-4 text-xs text-slate-500">
               <span>Dernier contact</span>
@@ -647,7 +779,9 @@ function CompanyList({
   );
 }
 
-function Reports() {
+function Reports({ missions }: { missions: Mission[] }) {
+  const reports = missions.filter((mission) => mission.score !== null);
+
   return (
     <div className="space-y-5">
       <div>
@@ -664,50 +798,52 @@ function Reports() {
           <span>Date</span>
           <span />
         </div>
-        {[
-          {
-            name: "Rapport de maturité cybersécurité",
-            company: "OxyTech",
-            date: "12 août 2026",
-            score: "86%",
-          },
-          {
-            name: "Synthèse de diagnostic",
-            company: "Noria Services",
-            date: "18 août 2026",
-            score: "74%",
-          },
-        ].map((report) => (
+        {reports.map((report) => (
           <div
-            key={report.name}
+            key={report.id}
             className="flex flex-wrap items-center gap-4 border-b border-slate-100 px-5 py-4 last:border-0 sm:grid sm:grid-cols-[1.5fr_1fr_0.7fr_0.5fr]"
           >
             <span className="flex items-center gap-3">
               <span className="flex size-9 items-center justify-center rounded-lg bg-primary-soft text-primary">
                 <FileText className="size-4" />
               </span>
-              <span className="text-sm font-semibold">{report.name}</span>
+              <span className="text-sm font-semibold">Rapport de diagnostic cybersécurité</span>
             </span>
             <span className="text-sm text-slate-600">{report.company}</span>
             <span className="text-sm text-slate-500">{report.date}</span>
             <button
               type="button"
-              aria-label={`Télécharger ${report.name}`}
+              aria-label={`Télécharger le rapport de ${report.company}`}
               className="ml-auto rounded-lg p-2 text-slate-500 hover:bg-slate-100 hover:text-primary"
             >
               <Download className="size-4" />
             </button>
             <span className="w-full text-xs text-primary sm:hidden">
-              Score final : {report.score}
+              Score final : {report.score}%
             </span>
           </div>
         ))}
+        {reports.length === 0 && (
+          <p className="p-10 text-center text-sm text-slate-500">
+            Aucun rapport finalisé dans les audits disponibles.
+          </p>
+        )}
       </div>
     </div>
   );
 }
 
-function Profile({ email }: { email: string | null }) {
+function Profile({
+  email,
+  name,
+  entity,
+  verified,
+}: {
+  email: string | null;
+  name: string;
+  entity: string;
+  verified: boolean;
+}) {
   return (
     <div className="max-w-3xl space-y-5">
       <div>
@@ -722,16 +858,16 @@ function Profile({ email }: { email: string | null }) {
             AM
           </span>
           <div>
-            <h3 className="text-lg font-semibold">Auditeur CyberAudit</h3>
+            <h3 className="text-lg font-semibold">{name}</h3>
             <p className="text-sm text-slate-500">{email ?? "Compte auditeur"}</p>
           </div>
-          <span className="sm:ml-auto inline-flex w-fit items-center gap-1.5 rounded-full bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-700">
-            <CheckCircle2 className="size-3.5" /> Profil vérifié
+          <span className={`sm:ml-auto inline-flex w-fit items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold ${verified ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700"}`}>
+            <CheckCircle2 className="size-3.5" /> {verified ? "Profil vérifié" : "Profil en vérification"}
           </span>
         </div>
         <div className="mt-6 grid gap-4 sm:grid-cols-2">
-          <ProfileField label="Prénom et nom" value="Auditeur CyberAudit" />
-          <ProfileField label="Organisme" value="CMRPI" />
+          <ProfileField label="Prénom et nom" value={name} />
+          <ProfileField label="Organisme" value={entity} />
           <ProfileField label="Fonction" value="Auditeur cybersécurité" />
           <ProfileField label="Email professionnel" value={email ?? "Non renseigné"} />
         </div>
@@ -787,7 +923,7 @@ function MissionDrawer({
             </p>
             <h2 className="mt-2 text-2xl font-semibold">{mission.company}</h2>
             <p className="mt-1 text-sm text-slate-500">
-              {mission.sector} · {mission.contact}
+              {mission.sector} · {mission.size} · {mission.region}
             </p>
           </div>
           <button

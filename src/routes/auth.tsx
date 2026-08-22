@@ -19,7 +19,6 @@ import { supabase } from "@/integrations/supabase/client";
 import { lovable } from "@/integrations/lovable/index";
 import { registerAuditor } from "@/lib/auditor.functions";
 import {
-  AUDITOR_ENTITIES,
   COMPANY_SIZES,
   REGIONS,
   SECTORS,
@@ -80,8 +79,6 @@ function AuthPage() {
   const [city, setCity] = useState("");
   const [accept, setAccept] = useState(false);
   // auditor
-  const [entity, setEntity] = useState<string>(AUDITOR_ENTITIES[0]);
-  const [entityOther, setEntityOther] = useState("");
   const [accessCode, setAccessCode] = useState("");
 
   const strength = useMemo(() => passwordStrength(password), [password]);
@@ -103,6 +100,7 @@ function AuthPage() {
     e.preventDefault();
     setBusy(true);
     setError(null);
+    await supabase.auth.signOut({ scope: "local" });
     const { error: err } = await supabase.auth.signInWithPassword({ email, password });
     setBusy(false);
     if (err) {
@@ -176,8 +174,6 @@ function AuthPage() {
           lastName,
           email,
           password,
-          entity: entity as (typeof AUDITOR_ENTITIES)[number],
-          entityOther,
           accessCode,
         },
       });
@@ -186,6 +182,7 @@ function AuthPage() {
         setBusy(false);
         return;
       }
+      await supabase.auth.signOut({ scope: "local" });
       const { error: err } = await supabase.auth.signInWithPassword({ email, password });
       setBusy(false);
       if (err) {
@@ -609,29 +606,9 @@ function AuthPage() {
                     />
                   </div>
                 </div>
-                <div>
-                  <label className={labelCls}>Entité de rattachement</label>
-                  <select
-                    value={entity}
-                    onChange={(e) => setEntity(e.target.value)}
-                    className={field}
-                  >
-                    {AUDITOR_ENTITIES.map((s) => (
-                      <option key={s}>{s}</option>
-                    ))}
-                  </select>
+                <div className="rounded-xl border border-primary/20 bg-primary-soft px-4 py-3 text-sm text-primary">
+                  Compte unique de l'entité CMRPI
                 </div>
-                {entity === "Autre cabinet" && (
-                  <div>
-                    <label className={labelCls}>Nom du cabinet</label>
-                    <input
-                      maxLength={120}
-                      value={entityOther}
-                      onChange={(e) => setEntityOther(e.target.value)}
-                      className={field}
-                    />
-                  </div>
-                )}
                 <div>
                   <label className={labelCls}>Email professionnel</label>
                   <input

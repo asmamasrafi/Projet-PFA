@@ -471,15 +471,20 @@ function EspacePage() {
         setSecurityZone(profile?.security_zone ?? "maroc");
 
         const roles = (roleRows ?? []).map((row) => row.role);
-        const detectedRole = roles.includes("auditor")
-          ? "auditor"
-          : roles.includes("admin")
-            ? "admin"
-            : profile?.account_type === "auditor"
-              ? "auditor"
-              : "pme";
+        const detectedRole = roles.includes("auditor") || profile?.account_type === "auditor"
+            ? "auditor"
+            : roles.includes("admin") || profile?.account_type === "admin"
+              ? "admin"
+              : roles.includes("pme") || profile?.account_type === "pme"
+              ? "pme"
+              : "unknown";
 
         setRole(detectedRole);
+
+        if (detectedRole === "admin") {
+          void navigate({ to: "/admin" });
+          return;
+        }
 
         if (detectedRole === "pme") {
           const [{ data: company }, { data: questionRows }] = await Promise.all([
@@ -612,18 +617,12 @@ function EspacePage() {
             }
           }
         }
-      } catch {
-        const { data: profile } = await supabase
-          .from("profiles")
-          .select("account_type")
-          .eq("id", session.user.id)
-          .maybeSingle();
-
-        if (profile?.account_type === "auditor") {
-          setRole("auditor");
-        } else {
-          setRole("pme");
-        }
+      } catch (error) {
+        console.error("Role/session loading error:", error);
+        setRole("unknown");
+        setAuditError(
+          "Impossible de déterminer le rôle de ce compte. Vérifiez les rôles Supabase et les migrations appliquées.",
+        );
       } finally {
         if (active) setLoading(false);
       }
@@ -673,6 +672,12 @@ function EspacePage() {
   const pmeStatus = latestAudit?.status ?? (profileCompletion === 100 ? "Prêt pour un audit" : "Profil à compléter");
   const pmeStatusIsReady =
     profileCompletion === 100 && (!latestAudit || latestAudit.status === "Validé");
+  const pmeInitials = (profileName || companyName || email || "PME")
+    .split(/[\s@._-]+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase())
+    .join("") || "PME";
   const weakestDomains = [...domains].sort((left, right) => left.score - right.score).slice(0, 3);
   const todayLabel = new Intl.DateTimeFormat("fr-FR", {
     day: "numeric",
@@ -1050,8 +1055,22 @@ function EspacePage() {
     );
   }
 
+  if (role === "admin") {
+    return null;
+  }
+
   if (role === "auditor") {
     return <AuditorSpace email={email} onLogout={handleLogout} />;
+  }
+
+  if (role === "unknown") {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-slate-100 px-5">
+        <div className="max-w-lg rounded-2xl border border-rose-200 bg-rose-50 px-6 py-5 text-sm text-rose-700">
+          {auditError ?? "Le rôle de ce compte n'est pas configuré."}
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -1179,6 +1198,25 @@ function EspacePage() {
               <div className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600">
                 {todayLabel}
               </div>
+              <button
+                type="button"
+                onClick={() => setActiveTab("audit")}
+                aria-label={`Notifications${alertCount ? `, ${alertCount} à traiter` : ", aucune alerte"}`}
+                className="relative rounded-xl border border-slate-200 bg-white p-2.5 text-slate-600 transition hover:border-primary/30 hover:text-primary"
+              >
+                <Bell className="h-4 w-4" />
+                {alertCount > 0 && (
+                  <span className="absolute -right-2 -top-2 flex min-h-5 min-w-5 items-center justify-center rounded-full bg-rose-500 px-1 text-[10px] font-bold text-white">
+                    {alertCount > 9 ? "9+" : alertCount}
+                  </span>
+                )}
+              </button>
+              <span
+                className="hidden size-9 items-center justify-center rounded-full bg-primary-soft text-sm font-bold text-primary sm:flex"
+                title={profileName || companyName || "Compte PME"}
+              >
+                {pmeInitials}
+              </span>
               <button
                 type="button"
                 onClick={() => setActiveTab("audit")}

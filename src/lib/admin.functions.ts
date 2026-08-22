@@ -1,6 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
+import { supabaseAdmin } from "@/integrations/supabase/client.server";
 
 export const getPendingAuditors = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
@@ -58,7 +59,7 @@ export const approveAuditor = createServerFn({ method: "POST" })
       throw new Error("Missing auditor user id");
     }
 
-    const { error: profileError } = await supabase
+    const { error: profileError } = await supabaseAdmin
       .from("profiles")
       .update({ account_type: "auditor", job_title: "Auditeur" })
       .eq("id", auditorUserId);
@@ -67,7 +68,7 @@ export const approveAuditor = createServerFn({ method: "POST" })
       throw new Error(profileError.message);
     }
 
-    const { error: auditorError } = await supabase
+    const { error: auditorError } = await supabaseAdmin
       .from("auditor_profiles")
       .update({ verified: true })
       .eq("user_id", auditorUserId);
@@ -76,12 +77,22 @@ export const approveAuditor = createServerFn({ method: "POST" })
       throw new Error(auditorError.message);
     }
 
-    const { error: roleError } = await supabase
+    const { error: roleError } = await supabaseAdmin
       .from("user_roles")
       .upsert({ user_id: auditorUserId, role: "auditor" }, { onConflict: "user_id,role" });
 
     if (roleError) {
       throw new Error(roleError.message);
+    }
+
+    const { error: pmeRoleError } = await supabaseAdmin
+      .from("user_roles")
+      .delete()
+      .eq("user_id", auditorUserId)
+      .eq("role", "pme");
+
+    if (pmeRoleError) {
+      throw new Error(pmeRoleError.message);
     }
 
     return { ok: true };
