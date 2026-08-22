@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import type { LucideIcon } from "lucide-react";
+import { jsPDF } from "jspdf";
 import {
   Archive,
   ArrowRight,
@@ -10,6 +11,7 @@ import {
   ChevronRight,
   ClipboardCheck,
   Download,
+  Eye,
   FileBarChart,
   FileText,
   LayoutDashboard,
@@ -33,6 +35,7 @@ type Mission = {
   sector: string;
   size: string;
   region: string;
+  auditorNote: string;
   status: MissionStatus;
   progress: number;
   due: string;
@@ -76,6 +79,7 @@ export function AuditorSpace({ email, onLogout }: { email: string | null; onLogo
   const [auditorEntity, setAuditorEntity] = useState("Cabinet auditeur");
   const [auditorVerified, setAuditorVerified] = useState(false);
   const [notes, setNotes] = useState("");
+  const [auditorId, setAuditorId] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
   const auditorInitials = (email ?? "AU")
     .split(/[\s@._-]+/)
@@ -106,6 +110,7 @@ export function AuditorSpace({ email, onLogout }: { email: string | null; onLogo
         }
         return;
       }
+      if (active) setAuditorId(user.id);
 
       const [{ data: profile }, { data: auditorProfile }] = await Promise.all([
         supabase.from("profiles").select("first_name, last_name").eq("id", user.id).maybeSingle(),
@@ -118,13 +123,14 @@ export function AuditorSpace({ email, onLogout }: { email: string | null; onLogo
         setAuditorVerified(Boolean(auditorProfile?.verified));
       }
 
-      const [{ data: companies, error: companiesError }, { data: audits, error: auditsError }, { data: answers }] = await Promise.all([
+      const [{ data: companies, error: companiesError }, { data: audits, error: auditsError }, { data: answers }, { data: notesRows }] = await Promise.all([
         supabase.from("companies").select("id, name, sector, size, region, updated_at").order("name"),
         supabase
           .from("audits")
           .select("id, company_id, status, score, updated_at, submitted_at")
           .order("updated_at", { ascending: false }),
         supabase.from("audit_answers").select("audit_id"),
+        supabase.from("audit_notes").select("audit_id, note"),
       ]);
 
       if (auditsError) {
@@ -148,6 +154,7 @@ export function AuditorSpace({ email, onLogout }: { email: string | null; onLogo
       (answers ?? []).forEach((answer) => {
         answersByAudit.set(answer.audit_id, (answersByAudit.get(answer.audit_id) ?? 0) + 1);
       });
+      const noteByAudit = new Map((notesRows ?? []).map((row) => [row.audit_id, row.note]));
       const formattedMissions = (audits ?? []).map((audit) => {
         const company = companyById.get(audit.company_id);
         const answerCount = answersByAudit.get(audit.id) ?? 0;
@@ -174,6 +181,7 @@ export function AuditorSpace({ email, onLogout }: { email: string | null; onLogo
           progress,
           due: new Intl.DateTimeFormat("fr-FR", { day: "2-digit", month: "short", year: "numeric" }).format(new Date(date)),
           score,
+          auditorNote: noteByAudit.get(audit.id) ?? "", 
           risk,
           contact: "Compte PME",
           updated: `Mis à jour le ${new Intl.DateTimeFormat("fr-FR", { day: "2-digit", month: "short" }).format(new Date(audit.updated_at))}`,
@@ -191,6 +199,7 @@ export function AuditorSpace({ email, onLogout }: { email: string | null; onLogo
           progress: 0,
           due: "À planifier",
           score: null,
+          auditorNote: "", 
           risk: "Modéré" as const,
           contact: "Compte PME",
           updated: `Entreprise mise à jour le ${new Intl.DateTimeFormat("fr-FR", { day: "2-digit", month: "short" }).format(new Date(company.updated_at))}`,
@@ -225,7 +234,42 @@ export function AuditorSpace({ email, onLogout }: { email: string | null; onLogo
   }
 
   const actionableCount = missions.filter((mission) => mission.status === "À valider" || mission.status === "En cours").length;
+    function openMission(mission: Mission) {
+    setSelected(mission);
+    setNotes(mission.auditorNote);
+    setSaved(false);
+  }
 
+  async function saveNote() {
+    if (!selected || !auditorId || selected.id.startsWith("company-")) return;
+    const { error } = await supabase.from("audit_notes").upsert({
+      audit_id: selected.id,
+      auditor_id: auditorId,
+      note: notes,
+      updated_at: new Date().toISOString(),
+    });
+    if (!error) {
+      setSaved(true);
+      setMissions((prev) =>
+        prev.map((mission) => (mission.id === selected.id ? { ...mission, auditorNote: notes } : mission)),
+      );
+    }
+  }
+  async function validateAudit() {
+    if (!selected || selected.status !== "À valider") return;
+    const { error } = await supabase
+      .from("audits")
+      .update({ status: "completed", completed_at: new Date().toISOString() })
+      .eq("id", selected.id);
+    if (!error) {
+      setMissions((prev) =>
+        prev.map((mission) =>
+          mission.id === selected.id ? { ...mission, status: "Clôturée" as MissionStatus } : mission,
+        ),
+      );
+      setSelected((prev) => (prev ? { ...prev, status: "Clôturée" as MissionStatus } : prev));
+    }
+  }
   return (
     <div className="min-h-screen bg-slate-100 text-slate-900">
       <div className="mx-auto flex min-h-screen max-w-[1680px]">
@@ -357,7 +401,7 @@ export function AuditorSpace({ email, onLogout }: { email: string | null; onLogo
             {loadError && <p className="mb-5 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{loadError}</p>}
             {loading && <p className="mb-5 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-500">Chargement des PME et audits...</p>}
             {activeTab === "overview" && (
-              <Overview missions={missions} onNavigate={selectTab} onSelect={setSelected} />
+              <Overview missions={missions} onNavigate={selectTab} onSelect={openMission} />
             )}
             {activeTab === "missions" && (
               <MissionList
@@ -366,13 +410,13 @@ export function AuditorSpace({ email, onLogout }: { email: string | null; onLogo
                 setQuery={setQuery}
                 statusFilter={statusFilter}
                 setStatusFilter={setStatusFilter}
-                onSelect={setSelected}
+                onSelect={openMission}
               />
             )}
             {activeTab === "companies" && (
-              <CompanyList missions={missions} onSelect={setSelected} />
+              <CompanyList missions={missions} onSelect={openMission} />
             )}
-            {activeTab === "reports" && <Reports missions={missions} />}
+            {activeTab === "reports" && <Reports missions={missions} onSelect={openMission} />}
             {activeTab === "profile" && (
               <Profile email={email} name={auditorName} entity={auditorEntity} verified={auditorVerified} />
             )}
@@ -386,13 +430,16 @@ export function AuditorSpace({ email, onLogout }: { email: string | null; onLogo
           notes={notes}
           setNotes={setNotes}
           saved={saved}
-          onSave={() => setSaved(true)}
+          canSaveNote={auditorId !== null && !selected.id.startsWith("company-")}
+          onSave={saveNote}
+          onValidate={validateAudit}
           onClose={() => {
             setSelected(null);
             setSaved(false);
           }}
         />
       )}
+
     </div>
   );
 }
@@ -498,7 +545,9 @@ function Overview({
                   <span className={`block text-sm font-bold ${riskStyles[mission.risk]}`}>
                     {mission.risk}
                   </span>
-                  <span className="mt-1 block text-xs text-slate-400">Risque</span>
+                  <span className="mt-1 block text-xs text-slate-400">
+                    {mission.score === null ? "Score —" : `Score ${mission.score}%`}
+                  </span>
                 </span>
                 <ChevronRight className="size-4 text-slate-300 transition group-hover:text-primary" />
               </button>
@@ -779,7 +828,7 @@ function CompanyList({
   );
 }
 
-function Reports({ missions }: { missions: Mission[] }) {
+function Reports({ missions, onSelect }: { missions: Mission[]; onSelect: (mission: Mission) => void }) {
   const reports = missions.filter((mission) => mission.score !== null);
 
   return (
@@ -810,14 +859,25 @@ function Reports({ missions }: { missions: Mission[] }) {
               <span className="text-sm font-semibold">Rapport de diagnostic cybersécurité</span>
             </span>
             <span className="text-sm text-slate-600">{report.company}</span>
-            <span className="text-sm text-slate-500">{report.date}</span>
+            <span className="text-sm text-slate-500">{report.due}</span>
+            <span className="ml-auto flex items-center gap-1">
             <button
-              type="button"
-              aria-label={`Télécharger le rapport de ${report.company}`}
-              className="ml-auto rounded-lg p-2 text-slate-500 hover:bg-slate-100 hover:text-primary"
-            >
-              <Download className="size-4" />
-            </button>
+                type="button"
+                aria-label={`Voir le rapport de ${report.company}`}
+                onClick={() => generateMissionReport(report, "view")}
+                className="rounded-lg p-2 text-slate-500 hover:bg-slate-100 hover:text-primary"
+              >
+                <Eye className="size-4" />
+              </button>
+              <button
+                type="button"
+                aria-label={`Télécharger le rapport de ${report.company}`}
+                onClick={() => generateMissionReport(report, "download")}
+                className="rounded-lg p-2 text-slate-500 hover:bg-slate-100 hover:text-primary"
+              >
+                <Download className="size-4" />
+              </button>
+            </span>
             <span className="w-full text-xs text-primary sm:hidden">
               Score final : {report.score}%
             </span>
@@ -897,14 +957,18 @@ function MissionDrawer({
   notes,
   setNotes,
   saved,
+  canSaveNote,
   onSave,
+  onValidate,
   onClose,
 }: {
   mission: Mission;
   notes: string;
   setNotes: (value: string) => void;
   saved: boolean;
+  canSaveNote: boolean;
   onSave: () => void;
+  onValidate: () => void;
   onClose: () => void;
 }) {
   return (
@@ -916,9 +980,9 @@ function MissionDrawer({
         className="h-full w-full max-w-lg overflow-y-auto bg-white p-5 shadow-2xl sm:rounded-2xl sm:p-7"
         onClick={(event) => event.stopPropagation()}
       >
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <p className="text-xs font-bold uppercase tracking-[0.18em] text-primary">
+               <div className="flex items-start justify-between gap-4">
+          <div className="min-w-0">
+            <p className="truncate text-xs font-bold uppercase tracking-[0.18em] text-primary">
               Dossier {mission.id}
             </p>
             <h2 className="mt-2 text-2xl font-semibold">{mission.company}</h2>
@@ -930,21 +994,31 @@ function MissionDrawer({
             type="button"
             aria-label="Fermer le dossier"
             onClick={onClose}
-            className="rounded-xl border border-slate-200 p-2 text-slate-500 hover:bg-slate-50"
+            className="shrink-0 rounded-xl border border-slate-200 p-2 text-slate-500 hover:bg-slate-50"
           >
             <X className="size-4" />
           </button>
         </div>
-        <div className="mt-7 grid grid-cols-2 gap-3">
-          <div className="rounded-xl bg-slate-50 p-4">
-            <p className="text-xs text-slate-500">Statut</p>
-            <p className="mt-1 text-sm font-semibold">{mission.status}</p>
-          </div>
+
+        <div className="mt-4">
+          <span className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ring-1 ${statusStyles[mission.status]}`}>
+            {mission.status}
+          </span>
+        </div>
+
+        <div className="mt-5 grid grid-cols-2 gap-3">
           <div className="rounded-xl bg-slate-50 p-4">
             <p className="text-xs text-slate-500">Échéance</p>
             <p className="mt-1 text-sm font-semibold">{mission.due}</p>
           </div>
+          <div className="rounded-xl bg-slate-50 p-4">
+            <p className="text-xs text-slate-500">Score de maturité</p>
+            <p className="mt-1 text-sm font-semibold">
+              {mission.score === null ? "Non disponible" : `${mission.score}%`}
+            </p>
+          </div>
         </div>
+
         <div className="mt-6">
           <div className="flex justify-between text-sm">
             <span className="font-semibold">Avancement de la mission</span>
@@ -957,12 +1031,18 @@ function MissionDrawer({
             />
           </div>
         </div>
-        <div className="mt-7 rounded-xl border border-amber-200 bg-amber-50 p-4">
+               <div className="mt-7 rounded-xl border border-amber-200 bg-amber-50 p-4">
           <p className="text-xs font-bold uppercase tracking-wider text-amber-700">
             Point d'attention
           </p>
           <p className="mt-2 text-sm leading-6 text-amber-900">
-            Vérifier les accès privilégiés et la présence d'une procédure de sauvegarde testée.
+            {mission.score === null
+              ? "Audit non finalisé par la PME : aucun point d'attention disponible pour le moment."
+              : mission.risk === "Élevé"
+                ? `Score de maturité faible (${mission.score}%) : recommandé de revoir les mesures de sécurité en priorité avec la PME.`
+                : mission.risk === "Modéré"
+                  ? `Score correct (${mission.score}%), mais plusieurs axes restent à renforcer avant validation.`
+                  : `Bon niveau de maturité (${mission.score}%) : le dossier peut être validé.`}
           </p>
         </div>
         <label className="mt-7 block">
@@ -980,7 +1060,8 @@ function MissionDrawer({
         <button
           type="button"
           onClick={onSave}
-          className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-primary px-4 py-3 text-sm font-semibold text-primary-foreground shadow-soft"
+          disabled={!canSaveNote}
+          className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-primary px-4 py-3 text-sm font-semibold text-primary-foreground shadow-soft disabled:cursor-not-allowed disabled:opacity-50"
         >
           {saved ? <CheckCircle2 className="size-4" /> : <Archive className="size-4" />}
           {saved ? "Note enregistrée" : "Enregistrer la note"}
@@ -995,4 +1076,77 @@ function MissionDrawer({
       </section>
     </div>
   );
+}
+function generateMissionReport(mission: Mission, mode: "view" | "download") {
+  const doc = new jsPDF({ unit: "mm", format: "a4" });
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const margin = 18;
+  let y = margin;
+
+  doc.setFontSize(18);
+  doc.setFont("helvetica", "bold");
+  doc.text("Rapport d'audit cybersécurité", margin, y);
+  y += 10;
+
+  doc.setFontSize(11);
+  doc.setFont("helvetica", "normal");
+  doc.text(`Entreprise : ${mission.company}`, margin, y);
+  y += 7;
+  doc.text(`Secteur : ${mission.sector} · Taille : ${mission.size} · Région : ${mission.region}`, margin, y);
+  y += 7;
+  doc.text(`Dossier : ${mission.id}`, margin, y);
+  y += 7;
+  doc.text(`Statut : ${mission.status}`, margin, y);
+  y += 7;
+  doc.text(`Échéance : ${mission.due}`, margin, y);
+  y += 10;
+
+  doc.setFontSize(14);
+  doc.setFont("helvetica", "bold");
+  doc.text(
+    mission.score === null ? "Score de maturité : non disponible" : `Score de maturité : ${mission.score}%`,
+    margin,
+    y,
+  );
+  y += 8;
+  doc.setFontSize(11);
+  doc.setFont("helvetica", "normal");
+  doc.text(`Niveau de risque évalué : ${mission.risk}`, margin, y);
+  y += 10;
+
+  doc.setFontSize(12);
+  doc.setFont("helvetica", "bold");
+  doc.text("Point d'attention", margin, y);
+  y += 7;
+  doc.setFontSize(11);
+  doc.setFont("helvetica", "normal");
+  const attentionText =
+    mission.score === null
+      ? "Audit non finalisé par la PME."
+      : mission.risk === "Élevé"
+        ? `Score de maturité faible (${mission.score}%) : recommandé de revoir les mesures de sécurité en priorité avec la PME.`
+        : mission.risk === "Modéré"
+          ? `Score correct (${mission.score}%), mais plusieurs axes restent à renforcer avant validation.`
+          : `Bon niveau de maturité (${mission.score}%) : le dossier peut être validé.`;
+  const wrappedAttention = doc.splitTextToSize(attentionText, pageWidth - margin * 2);
+  doc.text(wrappedAttention, margin, y);
+  y += wrappedAttention.length * 6 + 8;
+
+  if (mission.auditorNote) {
+    doc.setFontSize(12);
+    doc.setFont("helvetica", "bold");
+    doc.text("Notes de l'auditeur", margin, y);
+    y += 7;
+    doc.setFontSize(11);
+    doc.setFont("helvetica", "normal");
+    const wrappedNote = doc.splitTextToSize(mission.auditorNote, pageWidth - margin * 2);
+    doc.text(wrappedNote, margin, y);
+  }
+
+  const filename = `rapport-audit-${mission.company.replace(/\s+/g, "-").toLowerCase()}.pdf`;
+  if (mode === "download") {
+    doc.save(filename);
+  } else {
+    window.open(doc.output("bloburl"), "_blank");
+  }
 }

@@ -1,7 +1,8 @@
 ALTER TABLE public.profiles
   ADD COLUMN IF NOT EXISTS alert_frequency TEXT NOT NULL DEFAULT 'hebdomadaire'
     CHECK (alert_frequency IN ('quotidienne', 'hebdomadaire', 'mensuelle')),
-  ADD COLUMN IF NOT EXISTS security_zone TEXT NOT NULL DEFAULT 'maroc'
+  ADD COLUMN 
+IF NOT EXISTS security_zone TEXT NOT NULL DEFAULT 'maroc'
     CHECK (security_zone IN ('maroc', 'afrique', 'monde'));
 
 UPDATE public.profiles
