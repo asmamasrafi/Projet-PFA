@@ -38,6 +38,7 @@ type Mission = {
   auditorNote: string;
   domains: DomainScore[];
   recommendations: Recommendation[];
+  isoCoverage: IsoCoverageItem[];
   status: MissionStatus;
   progress: number;
   due: string;
@@ -60,6 +61,46 @@ const statusStyles: Record<MissionStatus, string> = {
   "En cours": "bg-blue-50 text-blue-700 ring-blue-200",
   "À valider": "bg-violet-50 text-violet-700 ring-violet-200",
   Clôturée: "bg-emerald-50 text-emerald-700 ring-emerald-200",
+};
+const iso27001Mapping: Record<number, { code: string; title: string }> = {
+  6: { code: "A.5.1", title: "Politiques de sécurité de l'information" },
+  7: { code: "A.5.2", title: "Rôles et responsabilités liés à la sécurité de l'information" },
+  8: { code: "A.5.9", title: "Inventaire des informations et autres actifs associés" },
+  9: { code: "6.1.2", title: "Appréciation des risques de sécurité de l'information" },
+  10: { code: "A.5.16", title: "Gestion des identités" },
+  11: { code: "A.5.17", title: "Informations d'authentification" },
+  12: { code: "A.5.18", title: "Droits d'accès" },
+  13: { code: "A.8.20", title: "Sécurité des réseaux" },
+  14: { code: "A.8.7", title: "Protection contre les logiciels malveillants" },
+  15: { code: "A.6.3", title: "Sensibilisation, apprentissage et formation à la sécurité de l'information" },
+  16: { code: "A.6.3", title: "Sensibilisation, apprentissage et formation à la sécurité de l'information" },
+  17: { code: "A.7.2", title: "Entrées physiques" },
+  18: { code: "A.5.12", title: "Classification des informations" },
+  19: { code: "A.8.13", title: "Sauvegarde des informations" },
+  20: { code: "A.8.13", title: "Sauvegarde des informations" },
+  21: { code: "A.5.26", title: "Réponse aux incidents de sécurité de l'information" },
+  22: { code: "A.5.30", title: "Préparation TIC pour la continuité d'activité" },
+  23: { code: "A.5.34", title: "Confidentialité et protection des données à caractère personnel" },
+};
+const nistMapping: Record<number, { code: string; title: string }> = {
+  6: { code: "ID.GV-1", title: "Politique de cybersécurité organisationnelle" },
+  7: { code: "ID.GV-2", title: "Rôles et responsabilités en cybersécurité" },
+  8: { code: "ID.AM-1/2", title: "Gestion des actifs matériels et logiciels" },
+  9: { code: "ID.RA", title: "Évaluation des risques" },
+  10: { code: "PR.AC-1", title: "Gestion des identités et des identifiants" },
+  11: { code: "PR.AC-7", title: "Authentification des utilisateurs" },
+  12: { code: "PR.IP-11", title: "Sécurité liée au personnel (départs, accès)" },
+  13: { code: "PR.AC-5", title: "Intégrité du réseau protégée" },
+  14: { code: "DE.CM-4", title: "Détection de code malveillant" },
+  15: { code: "PR.AT-1", title: "Sensibilisation et formation des utilisateurs" },
+  16: { code: "PR.AT-1", title: "Sensibilisation et formation des utilisateurs" },
+  17: { code: "PR.AC-2", title: "Gestion de l'accès physique aux actifs" },
+  18: { code: "PR.DS-5", title: "Protection contre la fuite de données" },
+  19: { code: "PR.IP-4", title: "Sauvegardes effectuées et testées" },
+  20: { code: "PR.IP-4", title: "Sauvegardes effectuées et testées" },
+  21: { code: "RS.RP-1", title: "Exécution du plan de réponse aux incidents" },
+  22: { code: "RC.RP-1", title: "Exécution du plan de continuité/reprise" },
+  23: { code: "ID.GV-3", title: "Exigences légales et réglementaires comprises" },
 };
 const recommendationsByIndex: Record<number, string> = {
   6: "Rédigez un document simple listant les règles de sécurité de base et partagez-le avec tous les employés.",
@@ -104,17 +145,19 @@ function formatAuditorName(firstName: string, lastName: string) {
 }
 type DomainScore = { name: string; score: number };
 type Recommendation = { question: string; recommendation: string };
+type IsoCoverageItem = { code: string; title: string; nistCode: string; nistTitle: string; covered: boolean };
 
 function computeDomainsAndRecommendations(
   auditId: string,
   answerRows: { audit_id: string; question_id: string; score: number | null }[],
   questionById: Map<string, { axis: string; question: string; noted: boolean; sort_order: number }>,
-): { domains: DomainScore[]; recommendations: Recommendation[] } {
+): { domains: DomainScore[]; recommendations: Recommendation[]; isoCoverage: IsoCoverageItem[] } {
   const categoryScores = new Map<string, number[]>();
   const candidates: { question: string; recommendation: string; level: number }[] = [];
-
+  const isoItems: IsoCoverageItem[] = [];
   answerRows
     .filter((answer) => answer.audit_id === auditId)
+    
     .forEach((answer) => {
       const question = questionById.get(answer.question_id);
       if (!question || !question.noted || answer.score === null) return;
@@ -126,6 +169,18 @@ function computeDomainsAndRecommendations(
       const recommendation = recommendationsByIndex[question.sort_order - 1];
       if (recommendation) {
         candidates.push({ question: question.question, recommendation, level: answer.score });
+      }
+
+      const isoMapping = iso27001Mapping[question.sort_order - 1];
+      const nist = nistMapping[question.sort_order - 1];
+      if (isoMapping) {
+        isoItems.push({
+          code: isoMapping.code,
+          title: isoMapping.title,
+          nistCode: nist?.code ?? "—",
+          nistTitle: nist?.title ?? "Non cartographié",
+          covered: answer.score >= 2,
+        });
       }
     });
 
@@ -141,7 +196,7 @@ function computeDomainsAndRecommendations(
     selected.push(...candidates.filter((candidate) => !selected.includes(candidate)).slice(0, 3 - selected.length));
   }
 
-  return { domains, recommendations: selected.slice(0, 5) };
+  return { domains, recommendations: selected.slice(0, 5), isoCoverage: isoItems };
 }
 const riskStyles = {
   Faible: "text-emerald-700",
@@ -1288,6 +1343,33 @@ function MissionDrawer({
             </ul>
           </div>
         )}
+                {mission.isoCoverage.length > 0 && (
+          <div className="mt-7">
+            <p className="text-sm font-semibold">
+              Correspondance ISO 27001 ({mission.isoCoverage.filter((item) => item.covered).length}/{mission.isoCoverage.length} contrôles couverts)
+            </p>
+            <div className="mt-3 space-y-2">
+              {mission.isoCoverage.map((item) => (
+                <div
+                  key={item.code + item.title}
+                  className="flex items-center justify-between gap-3 rounded-xl bg-slate-50 p-3 text-xs"
+                >
+                  <span className="text-slate-600">
+                    <span className="font-semibold text-slate-800">ISO 27001 {item.code}</span> — {item.title}
+                    <span className="mt-0.5 block text-[11px] text-slate-400">
+                      NIST CSF {item.nistCode} — {item.nistTitle}
+                    </span>
+                  </span>
+                  <span
+                    className={`shrink-0 rounded-full px-2 py-0.5 font-semibold ${item.covered ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700"}`}
+                  >
+                    {item.covered ? "Couvert" : "À renforcer"}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
         <label className="mt-7 block">
           <span className="text-sm font-semibold">Notes de suivi</span>
           <textarea
@@ -1335,95 +1417,259 @@ function MissionDrawer({
 function generateMissionReport(mission: Mission, mode: "view" | "download") {
   const doc = new jsPDF({ unit: "mm", format: "a4" });
   const pageWidth = doc.internal.pageSize.getWidth();
+  const pageHeight = doc.internal.pageSize.getHeight();
   const margin = 18;
-  let y = margin;
+  const contentWidth = pageWidth - margin * 2;
+  const brand: [number, number, number] = [15, 118, 110];
+  const brandDark: [number, number, number] = [11, 88, 82];
+  const slate: [number, number, number] = [55, 65, 81];
+  const slateLight: [number, number, number] = [100, 116, 139];
+  const amber: [number, number, number] = [180, 83, 9];
+  const emerald: [number, number, number] = [4, 120, 87];
+  let cursorY = margin;
 
-  doc.setFontSize(18);
-  doc.setFont("helvetica", "bold");
-  doc.text("Rapport d'audit cybersécurité", margin, y);
-  y += 10;
+  const scoreValue = mission.score ?? 0;
+  const gaugeColor: [number, number, number] =
+    scoreValue >= 75 ? emerald : scoreValue >= 50 ? [180, 138, 9] : [190, 60, 60];
 
-  doc.setFontSize(11);
-  doc.setFont("helvetica", "normal");
-  doc.text(`Entreprise : ${mission.company}`, margin, y);
-  y += 7;
-  doc.text(`Secteur : ${mission.sector} · Taille : ${mission.size} · Région : ${mission.region}`, margin, y);
-  y += 7;
-  doc.text(`Dossier : ${mission.id}`, margin, y);
-  y += 7;
-  doc.text(`Statut : ${mission.status}`, margin, y);
-  y += 7;
-  doc.text(`Échéance : ${mission.due}`, margin, y);
-  y += 10;
+  function drawGauge(cx: number, cy: number, radius: number, percent: number, color: [number, number, number]) {
+    const ctx = doc.context2d;
+    ctx.lineCap = "round";
+    ctx.beginPath();
+    ctx.arc(cx, cy, radius, 0, Math.PI * 2, false);
+    ctx.lineWidth = 4.5;
+    ctx.strokeStyle = "#e2e8f0";
+    ctx.stroke();
 
-  doc.setFontSize(14);
-  doc.setFont("helvetica", "bold");
-  doc.text(
-    mission.score === null ? "Score de maturité : non disponible" : `Score de maturité : ${mission.score}%`,
-    margin,
-    y,
-  );
-  y += 8;
-  doc.setFontSize(11);
-  doc.setFont("helvetica", "normal");
-  doc.text(`Niveau de risque évalué : ${mission.risk}`, margin, y);
-  y += 10;
+    const startAngle = -Math.PI / 2;
+    const endAngle = startAngle + (Math.PI * 2 * Math.min(100, Math.max(0, percent))) / 100;
+    ctx.beginPath();
+    ctx.arc(cx, cy, radius, startAngle, endAngle, false);
+    ctx.lineWidth = 4.5;
+    ctx.strokeStyle = `rgb(${color[0]}, ${color[1]}, ${color[2]})`;
+    ctx.stroke();
+  }
 
-  doc.setFontSize(12);
-  doc.setFont("helvetica", "bold");
-  doc.text("Point d'attention", margin, y);
-  y += 7;
-  doc.setFontSize(11);
-  doc.setFont("helvetica", "normal");
-  const attentionText =
+  function drawCoverPage() {
+    doc.setFillColor(...brand);
+    doc.rect(0, 0, pageWidth, 78, "F");
+    doc.setFillColor(...brandDark);
+    doc.rect(0, 74, pageWidth, 4, "F");
+
+    doc.setTextColor(255, 255, 255);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(13);
+    doc.text("CMRPI — ESPACE MAROC CYBERCONFIANCE", margin, 20);
+    doc.setFontSize(9);
+    doc.setFont("helvetica", "normal");
+    doc.text("Rapport d'audit — validé par l'auditeur cybersécurité", margin, 27);
+
+    doc.setFontSize(26);
+    doc.setFont("helvetica", "bold");
+    doc.text("Rapport d'audit", margin, 48);
+    doc.text("cybersécurité", margin, 58);
+    doc.setFontSize(10);
+    doc.setFont("helvetica", "normal");
+    doc.text("Document confidentiel — usage interne CMRPI et entreprise concernée", margin, 68);
+
+    cursorY = 100;
+    doc.setTextColor(...slate);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(20);
+    doc.text(mission.company, margin, cursorY);
+    cursorY += 8;
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(10.5);
+    doc.setTextColor(...slateLight);
+    doc.text(`${mission.sector} · ${mission.size} · ${mission.region}`, margin, cursorY);
+    cursorY += 6;
+    doc.text(`Dossier ${mission.id}`, margin, cursorY);
+    cursorY += 6;
+    doc.text(`Statut : ${mission.status} · Échéance : ${mission.due}`, margin, cursorY);
+
+    const gaugeCx = pageWidth - margin - 30;
+    const gaugeCy = 145;
+    if (mission.score !== null) {
+      drawGauge(gaugeCx, gaugeCy, 22, mission.score, gaugeColor);
+      doc.setTextColor(...slate);
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(20);
+      doc.text(`${mission.score}%`, gaugeCx, gaugeCy + 2, { align: "center" });
+      doc.setFontSize(8.5);
+      doc.setFont("helvetica", "normal");
+      doc.setTextColor(...slateLight);
+      doc.text("Score global", gaugeCx, gaugeCy + 9, { align: "center" });
+    } else {
+      doc.setFont("helvetica", "italic");
+      doc.setFontSize(10);
+      doc.setTextColor(...slateLight);
+      doc.text("Score non disponible", gaugeCx, gaugeCy, { align: "center" });
+    }
+
+    cursorY = 190;
+    doc.setDrawColor(226, 232, 240);
+    doc.setLineWidth(0.4);
+    doc.line(margin, cursorY, pageWidth - margin, cursorY);
+    cursorY += 10;
+
+    doc.setFillColor(234, 247, 240);
+    doc.roundedRect(margin, cursorY - 6, contentWidth, 26, 4, 4, "F");
+    doc.setTextColor(...brandDark);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(13);
+    doc.text(`Niveau de risque évalué : ${mission.risk}`, margin + 8, cursorY + 5);
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(9.5);
+    doc.setTextColor(...slate);
+    doc.text(`${mission.domains.length} domaines analysés — ${mission.recommendations.length} recommandations`, margin + 8, cursorY + 13);
+  }
+
+  function addFooters() {
+    const pageCount = doc.getNumberOfPages();
+    for (let i = 1; i <= pageCount; i += 1) {
+      doc.setPage(i);
+      doc.setDrawColor(226, 232, 240);
+      doc.setLineWidth(0.3);
+      doc.line(margin, pageHeight - 16, pageWidth - margin, pageHeight - 16);
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(8);
+      doc.setTextColor(...slateLight);
+      doc.text("CMRPI — Espace Maroc Cyberconfiance", margin, pageHeight - 10);
+      doc.text(`Page ${i} / ${pageCount}`, pageWidth - margin, pageHeight - 10, { align: "right" });
+    }
+  }
+
+  const ensureSpace = (height: number) => {
+    if (cursorY + height > pageHeight - 24) {
+      doc.addPage();
+      cursorY = margin + 6;
+    }
+  };
+
+  const addSectionTitle = (text: string) => {
+    ensureSpace(16);
+    cursorY += 4;
+    doc.setFillColor(...brand);
+    doc.rect(margin, cursorY - 4.5, 3, 5.5, "F");
+    doc.setTextColor(...brandDark);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(13.5);
+    doc.text(text, margin + 6, cursorY);
+    cursorY += 8;
+  };
+
+  const addParagraph = (text: string, size = 10, color: [number, number, number] = slate) => {
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(size);
+    doc.setTextColor(...color);
+    const lines = doc.splitTextToSize(text, contentWidth) as string[];
+    const lineHeight = size * 0.45;
+    ensureSpace(lines.length * lineHeight + 2);
+    doc.text(lines, margin, cursorY);
+    cursorY += lines.length * lineHeight + 3;
+  };
+
+  const addDomainRow = (domain: (typeof mission.domains)[number]) => {
+    ensureSpace(14);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(10.5);
+    doc.setTextColor(...slate);
+    doc.text(domain.name, margin, cursorY);
+    doc.text(`${domain.score}%`, pageWidth - margin, cursorY, { align: "right" });
+    cursorY += 4;
+    doc.setFillColor(226, 232, 240);
+    doc.roundedRect(margin, cursorY - 3, contentWidth, 3.5, 1.7, 1.7, "F");
+    const barColor: [number, number, number] = domain.score >= 75 ? emerald : domain.score >= 50 ? [180, 138, 9] : [190, 60, 60];
+    doc.setFillColor(...barColor);
+    doc.roundedRect(margin, cursorY - 3, contentWidth * (domain.score / 100), 3.5, 1.7, 1.7, "F");
+    cursorY += 9;
+  };
+
+  const addRecommendationCard = (item: (typeof mission.recommendations)[number], index: number) => {
+    const wrapped = doc.splitTextToSize(item.recommendation, contentWidth - 26) as string[];
+    const cardHeight = 12 + wrapped.length * 4.6;
+    ensureSpace(cardHeight + 4);
+    doc.setFillColor(247, 250, 249);
+    doc.setDrawColor(...brand);
+    doc.setLineWidth(0.3);
+    doc.roundedRect(margin, cursorY - 4, contentWidth, cardHeight, 3, 3, "FD");
+    doc.setFillColor(...brand);
+    doc.circle(margin + 9, cursorY + 5.5, 4.2, "F");
+    doc.setTextColor(255, 255, 255);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(9);
+    doc.text(String(index + 1), margin + 9, cursorY + 7, { align: "center" });
+    doc.setTextColor(...brandDark);
+    doc.setFontSize(9.5);
+    doc.text(item.question, margin + 18, cursorY + 3);
+    doc.setTextColor(...slate);
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(9);
+    doc.text(wrapped, margin + 18, cursorY + 9);
+    cursorY += cardHeight + 5;
+  };
+
+  const addReferentialRow = (item: (typeof mission.isoCoverage)[number], index: number) => {
+    const rowHeight = 14;
+    ensureSpace(rowHeight);
+    if (index % 2 === 0) {
+      doc.setFillColor(248, 250, 252);
+      doc.rect(margin, cursorY - 5, contentWidth, rowHeight, "F");
+    }
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(9);
+    doc.setTextColor(...slate);
+    doc.text(`ISO 27001 ${item.code}`, margin + 2, cursorY);
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(8.3);
+    doc.setTextColor(...slateLight);
+    doc.text(item.title, margin + 2, cursorY + 4.3);
+    doc.text(`NIST CSF ${item.nistCode} — ${item.nistTitle}`, margin + 2, cursorY + 8.3);
+    const statusColor = item.covered ? emerald : amber;
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(8.5);
+    doc.setTextColor(...statusColor);
+    doc.text(item.covered ? "COUVERT" : "À RENFORCER", pageWidth - margin - 2, cursorY + 2, { align: "right" });
+    cursorY += rowHeight + 1;
+  };
+
+  drawCoverPage();
+  doc.addPage();
+  cursorY = margin + 6;
+
+  addSectionTitle("Point d'attention de l'auditeur");
+  addParagraph(
     mission.score === null
       ? "Audit non finalisé par la PME."
       : mission.risk === "Élevé"
         ? `Score de maturité faible (${mission.score}%) : recommandé de revoir les mesures de sécurité en priorité avec la PME.`
         : mission.risk === "Modéré"
           ? `Score correct (${mission.score}%), mais plusieurs axes restent à renforcer avant validation.`
-          : `Bon niveau de maturité (${mission.score}%) : le dossier peut être validé.`;
-  const wrappedAttention = doc.splitTextToSize(attentionText, pageWidth - margin * 2);
-  doc.text(wrappedAttention, margin, y);
-  y += wrappedAttention.length * 6 + 8;
-    if (mission.domains.length > 0) {
-    doc.setFontSize(12);
-    doc.setFont("helvetica", "bold");
-    doc.text("Détail par domaine", margin, y);
-    y += 7;
-    doc.setFontSize(11);
-    doc.setFont("helvetica", "normal");
-    mission.domains.forEach((domain) => {
-      doc.text(`${domain.name} : ${domain.score}%`, margin, y);
-      y += 6;
-    });
-    y += 4;
+          : `Bon niveau de maturité (${mission.score}%) : le dossier peut être validé.`,
+  );
+
+  if (mission.domains.length > 0) {
+    addSectionTitle("Détail par domaine");
+    mission.domains.forEach((domain) => addDomainRow(domain));
   }
 
   if (mission.recommendations.length > 0) {
-    doc.setFontSize(12);
-    doc.setFont("helvetica", "bold");
-    doc.text("Recommandations", margin, y);
-    y += 7;
-    doc.setFontSize(11);
-    doc.setFont("helvetica", "normal");
-    mission.recommendations.forEach((item) => {
-      const wrapped = doc.splitTextToSize(`• ${item.recommendation}`, pageWidth - margin * 2);
-      doc.text(wrapped, margin, y);
-      y += wrapped.length * 6 + 2;
-    });
-    y += 4;
+    addSectionTitle("Recommandations");
+    mission.recommendations.forEach((item, index) => addRecommendationCard(item, index));
   }
+
+  if (mission.isoCoverage.length > 0) {
+    const covered = mission.isoCoverage.filter((item) => item.covered).length;
+    addSectionTitle(`Correspondance référentiels (${covered}/${mission.isoCoverage.length} contrôles couverts)`);
+    mission.isoCoverage.forEach((item, index) => addReferentialRow(item, index));
+  }
+
   if (mission.auditorNote) {
-    doc.setFontSize(12);
-    doc.setFont("helvetica", "bold");
-    doc.text("Notes de l'auditeur", margin, y);
-    y += 7;
-    doc.setFontSize(11);
-    doc.setFont("helvetica", "normal");
-    const wrappedNote = doc.splitTextToSize(mission.auditorNote, pageWidth - margin * 2);
-    doc.text(wrappedNote, margin, y);
+    addSectionTitle("Notes de l'auditeur");
+    addParagraph(mission.auditorNote);
   }
+
+  addFooters();
 
   const filename = `rapport-audit-${mission.company.replace(/\s+/g, "-").toLowerCase()}.pdf`;
   if (mode === "download") {

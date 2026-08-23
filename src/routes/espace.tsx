@@ -29,7 +29,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { AuditorSpace } from "@/components/auditor-space";
 import { COMPANY_SIZES, REGIONS, SECTORS } from "@/lib/auth-options";
 
-const title = "Mon espace — CyberAudit PME";
+const title = "Mon espace - CyberAudit PME";
 const description = "Votre espace personnel CyberAudit PME.";
 
 type TabId = "overview" | "profile" | "settings" | "history" | "audit";
@@ -72,7 +72,78 @@ const recommendations: Record<number, string> = {
   22: "Préparez un plan de secours pour continuer à fonctionner en cas de panne majeure.",
   23: "Vérifiez que votre entreprise respecte la loi 09-08 sur la protection des données personnelles.",
 };
+const iso27001Mapping: Record<number, { code: string; title: string }> = {
+  6: { code: "A.5.1", title: "Politiques de sécurité de l'information" },
+  7: { code: "A.5.2", title: "Rôles et responsabilités liés à la sécurité de l'information" },
+  8: { code: "A.5.9", title: "Inventaire des informations et autres actifs associés" },
+  9: { code: "6.1.2", title: "Appréciation des risques de sécurité de l'information" },
+  10: { code: "A.5.16", title: "Gestion des identités" },
+  11: { code: "A.5.17", title: "Informations d'authentification" },
+  12: { code: "A.5.18", title: "Droits d'accès" },
+  13: { code: "A.8.20", title: "Sécurité des réseaux" },
+  14: { code: "A.8.7", title: "Protection contre les logiciels malveillants" },
+  15: { code: "A.6.3", title: "Sensibilisation, apprentissage et formation à la sécurité de l'information" },
+  16: { code: "A.6.3", title: "Sensibilisation, apprentissage et formation à la sécurité de l'information" },
+  17: { code: "A.7.2", title: "Entrées physiques" },
+  18: { code: "A.5.12", title: "Classification des informations" },
+  19: { code: "A.8.13", title: "Sauvegarde des informations" },
+  20: { code: "A.8.13", title: "Sauvegarde des informations" },
+  21: { code: "A.5.26", title: "Réponse aux incidents de sécurité de l'information" },
+  22: { code: "A.5.30", title: "Préparation TIC pour la continuité d'activité" },
+  23: { code: "A.5.34", title: "Confidentialité et protection des données à caractère personnel" },
+};
+const nistMapping: Record<number, { code: string; title: string }> = {
+  6: { code: "ID.GV-1", title: "Politique de cybersécurité organisationnelle" },
+  7: { code: "ID.GV-2", title: "Rôles et responsabilités en cybersécurité" },
+  8: { code: "ID.AM-1/2", title: "Gestion des actifs matériels et logiciels" },
+  9: { code: "ID.RA", title: "Évaluation des risques" },
+  10: { code: "PR.AC-1", title: "Gestion des identités et des identifiants" },
+  11: { code: "PR.AC-7", title: "Authentification des utilisateurs" },
+  12: { code: "PR.IP-11", title: "Sécurité liée au personnel (départs, accès)" },
+  13: { code: "PR.AC-5", title: "Intégrité du réseau protégée" },
+  14: { code: "DE.CM-4", title: "Détection de code malveillant" },
+  15: { code: "PR.AT-1", title: "Sensibilisation et formation des utilisateurs" },
+  16: { code: "PR.AT-1", title: "Sensibilisation et formation des utilisateurs" },
+  17: { code: "PR.AC-2", title: "Gestion de l'accès physique aux actifs" },
+  18: { code: "PR.DS-5", title: "Protection contre la fuite de données" },
+  19: { code: "PR.IP-4", title: "Sauvegardes effectuées et testées" },
+  20: { code: "PR.IP-4", title: "Sauvegardes effectuées et testées" },
+  21: { code: "RS.RP-1", title: "Exécution du plan de réponse aux incidents" },
+  22: { code: "RC.RP-1", title: "Exécution du plan de continuité/reprise" },
+  23: { code: "ID.GV-3", title: "Exigences légales et réglementaires comprises" },
+};
+type IsoCoverageItem = {
+  question: string;
+  code: string;
+  title: string;
+  nistCode: string;
+  nistTitle: string;
+  level: number;
+  covered: boolean;
+};
 
+function getIsoCoverage(questions: AuditQuestion[], answers: Record<number, string>): IsoCoverageItem[] {
+  return questions.flatMap((question, index) => {
+    if (!question.noted) return [];
+    const answer = answers[index];
+    if (!answer) return [];
+    const level = question.options.indexOf(answer);
+        const mapping = iso27001Mapping[index];
+    const nist = nistMapping[index];
+    if (level < 0 || !mapping) return [];
+    return [
+      {
+        question: question.question,
+        code: mapping.code,
+        title: mapping.title,
+        nistCode: nist?.code ?? "—",
+        nistTitle: nist?.title ?? "Non cartographié",
+        level,
+        covered: level >= 2,
+      },
+    ];
+   });
+}
 function getMaturityLevel(score: number, scoreMax = maxScore) {
   const ratio = scoreMax ? score / scoreMax : 0;
   if (ratio <= 0.25) return "Niveau 1 - Initial";
@@ -655,6 +726,8 @@ function EspacePage() {
   const scorePercent = getScorePercent(scorePoints);
   const reportRecommendations = getRecommendations(questions, answers);
   const diagnosticDomains = getCategoryScores(questions, answers);
+  const isoCoverage = getIsoCoverage(questions, answers);
+  const isoCoveredCount = isoCoverage.filter((item) => item.covered).length;
 
   const currentQuestionData = (questions[currentQuestion] ?? fallbackQuestions[0]) as AuditQuestion;
   const latestAudit = auditHistory[0];
@@ -912,7 +985,6 @@ function EspacePage() {
     setCompanyRegion(company?.region ?? "");
     setSettingsMessage("Les valeurs enregistrées ont été rechargées.");
   }
-
   function generateDiagnosticReport() {
     const confirmed = window.confirm("Voulez-vous télécharger le rapport PDF de diagnostic ?");
     if (!confirmed) {
@@ -924,12 +996,120 @@ function EspacePage() {
     const pageHeight = document.internal.pageSize.getHeight();
     const margin = 18;
     const contentWidth = pageWidth - margin * 2;
+    const brand: [number, number, number] = [15, 118, 110];
+    const brandDark: [number, number, number] = [11, 88, 82];
+    const slate: [number, number, number] = [55, 65, 81];
+    const slateLight: [number, number, number] = [100, 116, 139];
+    const amber: [number, number, number] = [180, 83, 9];
+    const emerald: [number, number, number] = [4, 120, 87];
     let cursorY = margin;
 
+    const gaugeColor: [number, number, number] =
+      scorePercent >= 75 ? emerald : scorePercent >= 50 ? [180, 138, 9] : [190, 60, 60];
+
+    function drawGauge(cx: number, cy: number, radius: number, percent: number, color: [number, number, number]) {
+      const ctx = document.context2d;
+      ctx.lineCap = "round";
+      ctx.beginPath();
+      ctx.arc(cx, cy, radius, 0, Math.PI * 2, false);
+      ctx.lineWidth = 4.5;
+      ctx.strokeStyle = "#e2e8f0";
+      ctx.stroke();
+
+      const startAngle = -Math.PI / 2;
+      const endAngle = startAngle + (Math.PI * 2 * Math.min(100, Math.max(0, percent))) / 100;
+      ctx.beginPath();
+      ctx.arc(cx, cy, radius, startAngle, endAngle, false);
+      ctx.lineWidth = 4.5;
+      ctx.strokeStyle = `rgb(${color[0]}, ${color[1]}, ${color[2]})`;
+      ctx.stroke();
+    }
+
+    function drawCoverPage() {
+      document.setFillColor(...brand);
+      document.rect(0, 0, pageWidth, 78, "F");
+      document.setFillColor(...brandDark);
+      document.rect(0, 74, pageWidth, 4, "F");
+
+      document.setTextColor(255, 255, 255);
+      document.setFont("helvetica", "bold");
+      document.setFontSize(13);
+      document.text("CMRPI — ESPACE MAROC CYBERCONFIANCE", margin, 20);
+      document.setFontSize(9);
+      document.setFont("helvetica", "normal");
+      document.text("Plateforme d'audit et d'évaluation de la maturité cybersécurité des PME", margin, 27);
+
+      document.setFontSize(26);
+      document.setFont("helvetica", "bold");
+      document.text("Rapport de diagnostic", margin, 48);
+      document.text("cybersécurité", margin, 58);
+      document.setFontSize(10);
+      document.setFont("helvetica", "normal");
+      document.text("Document confidentiel — usage interne à l'entreprise auditée", margin, 68);
+
+      cursorY = 100;
+      document.setTextColor(...slate);
+      document.setFont("helvetica", "bold");
+      document.setFontSize(20);
+      document.text(companyName || "Entreprise non renseignée", margin, cursorY);
+      cursorY += 8;
+      document.setFont("helvetica", "normal");
+      document.setFontSize(10.5);
+      document.setTextColor(...slateLight);
+      const infoLine = [companySector, companySize, companyRegion].filter(Boolean).join("  ·  ");
+      if (infoLine) document.text(infoLine, margin, cursorY);
+      cursorY += 6;
+      document.text(`Rapport généré le ${todayLabel}`, margin, cursorY);
+
+      const gaugeCx = pageWidth - margin - 30;
+      const gaugeCy = 145;
+      drawGauge(gaugeCx, gaugeCy, 22, scorePercent, gaugeColor);
+      document.setTextColor(...slate);
+      document.setFont("helvetica", "bold");
+      document.setFontSize(20);
+      document.text(`${scorePercent}%`, gaugeCx, gaugeCy + 2, { align: "center" });
+      document.setFontSize(8.5);
+      document.setFont("helvetica", "normal");
+      document.setTextColor(...slateLight);
+      document.text("Score global", gaugeCx, gaugeCy + 9, { align: "center" });
+
+      cursorY = 190;
+      document.setDrawColor(226, 232, 240);
+      document.setLineWidth(0.4);
+      document.line(margin, cursorY, pageWidth - margin, cursorY);
+      cursorY += 10;
+
+      document.setFillColor(234, 247, 240);
+      document.roundedRect(margin, cursorY - 6, contentWidth, 26, 4, 4, "F");
+      document.setTextColor(...brandDark);
+      document.setFont("helvetica", "bold");
+      document.setFontSize(13);
+      document.text(`Niveau de maturité : ${getMaturityLevel(scorePoints)}`, margin + 8, cursorY + 5);
+      document.setFont("helvetica", "normal");
+      document.setFontSize(9.5);
+      document.setTextColor(...slate);
+      document.text(`${scorePoints} points sur ${maxScore} — ${diagnosticDomains.length} domaines évalués`, margin + 8, cursorY + 13);
+    }
+
+    function addFooters() {
+      const pageCount = document.getNumberOfPages();
+      for (let i = 1; i <= pageCount; i += 1) {
+        document.setPage(i);
+        document.setDrawColor(226, 232, 240);
+        document.setLineWidth(0.3);
+        document.line(margin, pageHeight - 16, pageWidth - margin, pageHeight - 16);
+        document.setFont("helvetica", "normal");
+        document.setFontSize(8);
+        document.setTextColor(...slateLight);
+        document.text("CMRPI — Espace Maroc Cyberconfiance", margin, pageHeight - 10);
+        document.text(`Page ${i} / ${pageCount}`, pageWidth - margin, pageHeight - 10, { align: "right" });
+      }
+    }
+
     const ensureSpace = (height: number) => {
-      if (cursorY + height > pageHeight - margin) {
+      if (cursorY + height > pageHeight - 24) {
         document.addPage();
-        cursorY = margin;
+        cursorY = margin + 6;
       }
     };
 
@@ -938,110 +1118,118 @@ function EspacePage() {
       size: number,
       options?: { bold?: boolean; color?: [number, number, number] },
     ) => {
-      if (options?.color) document.setTextColor(...options.color);
-      else document.setTextColor(31, 41, 55);
+      document.setTextColor(...(options?.color ?? slate));
       document.setFont("helvetica", options?.bold ? "bold" : "normal");
       document.setFontSize(size);
       const lines = document.splitTextToSize(text, contentWidth) as string[];
       const lineHeight = size * 0.45;
-
       ensureSpace(lines.length * lineHeight + 2);
       document.text(lines, margin, cursorY);
       cursorY += lines.length * lineHeight;
     };
 
     const addSectionTitle = (text: string) => {
-      cursorY += 7;
-      addText(text, 14, { bold: true, color: [15, 118, 110] });
-      cursorY += 2;
+      ensureSpace(16);
+      cursorY += 4;
+      document.setFillColor(...brand);
+      document.rect(margin, cursorY - 4.5, 3, 5.5, "F");
+      document.setTextColor(...brandDark);
+      document.setFont("helvetica", "bold");
+      document.setFontSize(13.5);
+      document.text(text, margin + 6, cursorY);
+      cursorY += 8;
+    };
+
+    const addDomainRow = (domain: (typeof diagnosticDomains)[number]) => {
+      ensureSpace(14);
+      document.setFont("helvetica", "bold");
+      document.setFontSize(10.5);
+      document.setTextColor(...slate);
+      document.text(domain.name, margin, cursorY);
+      document.text(`${domain.score}%`, pageWidth - margin, cursorY, { align: "right" });
+      cursorY += 4;
+      document.setFillColor(226, 232, 240);
+      document.roundedRect(margin, cursorY - 3, contentWidth, 3.5, 1.7, 1.7, "F");
+      const barColor: [number, number, number] = domain.score >= 75 ? emerald : domain.score >= 50 ? [180, 138, 9] : [190, 60, 60];
+      document.setFillColor(...barColor);
+      document.roundedRect(margin, cursorY - 3, contentWidth * (domain.score / 100), 3.5, 1.7, 1.7, "F");
+      cursorY += 9;
     };
 
     const addRecommendationCard = (item: (typeof reportRecommendations)[number], index: number) => {
-      const cardHeight = 23;
+      const wrapped = document.splitTextToSize(item.recommendation, contentWidth - 26) as string[];
+      const cardHeight = 12 + wrapped.length * 4.6;
       ensureSpace(cardHeight + 4);
-      document.setFillColor(245, 250, 248);
-      document.roundedRect(margin, cursorY - 4, contentWidth, cardHeight, 3, 3, "F");
-      document.setFillColor(15, 118, 110);
-      document.circle(margin + 8, cursorY + 6, 4, "F");
+      document.setFillColor(247, 250, 249);
+      document.setDrawColor(...brand);
+      document.setLineWidth(0.3);
+      document.roundedRect(margin, cursorY - 4, contentWidth, cardHeight, 3, 3, "FD");
+      document.setFillColor(...brand);
+      document.circle(margin + 9, cursorY + 5.5, 4.2, "F");
       document.setTextColor(255, 255, 255);
       document.setFont("helvetica", "bold");
       document.setFontSize(9);
-      document.text(String(index + 1), margin + 6.5, cursorY + 9);
-      document.setTextColor(15, 94, 89);
+      document.text(String(index + 1), margin + 9, cursorY + 7, { align: "center" });
+      document.setTextColor(...brandDark);
       document.setFontSize(10);
-      document.text(`${item.category} - niveau ${item.level}/3`, margin + 16, cursorY + 5);
-      document.setTextColor(55, 65, 81);
+      document.text(`${item.category} — niveau ${item.level}/3`, margin + 18, cursorY + 3);
+      document.setTextColor(...slate);
       document.setFont("helvetica", "normal");
       document.setFontSize(9);
-      const lines = document.splitTextToSize(item.recommendation, contentWidth - 24) as string[];
-      document.text(lines.slice(0, 2), margin + 16, cursorY + 11);
-      cursorY += cardHeight + 4;
+      document.text(wrapped, margin + 18, cursorY + 9);
+      cursorY += cardHeight + 5;
     };
 
-    document.setFillColor(15, 118, 110);
-    document.rect(0, 0, pageWidth, 34, "F");
-    document.setTextColor(255, 255, 255);
-    document.setFont("helvetica", "bold");
-    document.setFontSize(20);
-    document.text("CyberAudit PME", margin, 15);
-    document.setFont("helvetica", "normal");
-    document.setFontSize(9);
-    document.text("Rapport de maturité cybersécurité", margin, 24);
-    cursorY = 48;
-    addText("Rapport de diagnostic cybersécurité", 20, {
-      bold: true,
-      color: [15, 118, 110],
-    });
-    addText("CMRPI - Espace Maroc Cyberconfiance", 10);
-    addText(`Généré le ${todayLabel}`, 9, { color: [100, 116, 139] });
-    cursorY += 5;
-    ensureSpace(27);
-    document.setFillColor(234, 247, 240);
-    document.roundedRect(margin, cursorY - 5, contentWidth, 24, 4, 4, "F");
-    document.setTextColor(15, 118, 110);
-    document.setFont("helvetica", "bold");
-    document.setFontSize(18);
-    document.text(`${scorePercent}%`, margin + 10, cursorY + 10);
-    document.setFontSize(10);
-    document.text(`${scorePoints}/${maxScore} points`, margin + 42, cursorY + 5);
-    document.setFont("helvetica", "normal");
-    document.setTextColor(55, 65, 81);
-    document.text(`Niveau : ${getMaturityLevel(scorePoints)}`, margin + 42, cursorY + 12);
-    cursorY += 30;
+    const addReferentialRow = (item: (typeof isoCoverage)[number], index: number) => {
+      const rowHeight = 14;
+      ensureSpace(rowHeight);
+      if (index % 2 === 0) {
+        document.setFillColor(248, 250, 252);
+        document.rect(margin, cursorY - 5, contentWidth, rowHeight, "F");
+      }
+      document.setFont("helvetica", "bold");
+      document.setFontSize(9);
+      document.setTextColor(...slate);
+      document.text(`ISO 27001 ${item.code}`, margin + 2, cursorY);
+      document.setFont("helvetica", "normal");
+      document.setFontSize(8.3);
+      document.setTextColor(...slateLight);
+      document.text(item.title, margin + 2, cursorY + 4.3);
+      document.text(`NIST CSF ${item.nistCode} — ${item.nistTitle}`, margin + 2, cursorY + 8.3);
+      const statusColor = item.covered ? emerald : amber;
+      document.setFont("helvetica", "bold");
+      document.setFontSize(8.5);
+      document.setTextColor(...statusColor);
+      document.text(item.covered ? "COUVERT" : "À RENFORCER", pageWidth - margin - 2, cursorY + 2, { align: "right" });
+      cursorY += rowHeight + 1;
+    };
+
+    drawCoverPage();
+    document.addPage();
+    cursorY = margin + 6;
 
     addSectionTitle("Diagnostic par catégorie");
     if (diagnosticDomains.length === 0) {
       addText("Les scores par catégorie ne sont pas disponibles.", 10);
     } else {
-      diagnosticDomains.forEach((domain) => {
-        addText(`${domain.name} : ${domain.score}%`, 11, { bold: true });
-        ensureSpace(8);
-        document.setFillColor(226, 232, 240);
-        document.roundedRect(margin, cursorY - 4, contentWidth, 4, 2, 2, "F");
-        document.setFillColor(15, 118, 110);
-        document.roundedRect(
-          margin,
-          cursorY - 4,
-          contentWidth * (domain.score / 100),
-          4,
-          2,
-          2,
-          "F",
-        );
-        cursorY += 9;
-      });
+      diagnosticDomains.forEach((domain) => addDomainRow(domain));
     }
 
-    addSectionTitle("Recommandations");
+    addSectionTitle("Recommandations prioritaires");
     if (reportRecommendations.length === 0) {
-      addText(
-        "Aucune recommandation prioritaire : les bonnes pratiques notées sont installées.",
-        10,
-      );
+      addText("Aucune recommandation prioritaire : les bonnes pratiques notées sont installées.", 10);
     } else {
       reportRecommendations.forEach((item, index) => addRecommendationCard(item, index));
     }
 
+    addSectionTitle(`Correspondance référentiels (${isoCoveredCount}/${isoCoverage.length} contrôles couverts)`);
+    if (isoCoverage.length === 0) {
+      addText("La correspondance sera disponible une fois le questionnaire complété.", 10);
+    } else {
+      isoCoverage.forEach((item, index) => addReferentialRow(item, index));
+    }
+
+    addFooters();
     document.save("rapport-diagnostic-cybersecurite.pdf");
   }
 
@@ -1919,17 +2107,55 @@ function EspacePage() {
                         </div>
                       </div>
 
-                      <div className="space-y-4">
-                        <div className="rounded-3xl border border-primary/10 bg-primary-soft p-5">
-                          <div className="flex items-center gap-2 text-primary">
-                            <Target className="h-5 w-5" />
-                            <span className="font-semibold">Recommandation clé</span>
+                                            <div className="space-y-4">
+                        <div className="rounded-3xl border border-primary/15 bg-white p-5 shadow-sm">
+                          <div className="flex items-start justify-between gap-4">
+                            <div>
+                              <p className="text-xs font-bold uppercase tracking-[0.18em] text-primary">
+                                Plan d'amélioration
+                              </p>
+                              <p className="mt-2 text-lg font-semibold text-slate-900">
+                                Recommandations prioritaires
+                              </p>
+                            </div>
+                            <span className="rounded-full bg-primary-soft px-2.5 py-1 text-xs font-bold text-primary">
+                              {reportRecommendations.length}
+                            </span>
                           </div>
-                          <p className="mt-3 text-sm text-slate-700">
+                          <p className="mt-3 text-sm text-slate-600">
                             {weakestDomains[0]
-                              ? `Renforcer en priorité le thème « ${weakestDomains[0].name} » (${weakestDomains[0].score}%).`
+                              ? `À traiter en priorité : « ${weakestDomains[0].name} » (${weakestDomains[0].score}%).`
                               : "Les recommandations apparaîtront après l'enregistrement des réponses."}
                           </p>
+                          {reportRecommendations.length === 0 ? (
+                            <p className="mt-4 rounded-2xl bg-slate-50 p-4 text-sm text-slate-500">
+                              Aucune recommandation prioritaire pour les réponses enregistrées.
+                            </p>
+                          ) : (
+                            <ul className="mt-5 max-h-[380px] space-y-3 overflow-y-auto pr-1 text-sm text-slate-600">
+                              {reportRecommendations.map((item, index) => (
+                                <li
+                                  key={item.question}
+                                  className="rounded-2xl border border-slate-100 bg-slate-50/80 p-4"
+                                >
+                                  <div className="flex items-start gap-3">
+                                    <span className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-primary text-xs font-bold text-primary-foreground">
+                                      {String(index + 1).padStart(2, "0")}
+                                    </span>
+                                    <div>
+                                      <p className="font-semibold text-slate-800">
+                                        {item.category}
+                                      </p>
+                                      <p className="mt-1 text-xs font-medium text-primary">
+                                        Niveau obtenu : {item.level}/3
+                                      </p>
+                                      <p className="mt-2 leading-6">{item.recommendation}</p>
+                                    </div>
+                                  </div>
+                                </li>
+                              ))}
+                            </ul>
+                          )}
                         </div>
 
                         <div className="rounded-3xl border border-slate-200 bg-white p-5">
@@ -1961,49 +2187,35 @@ function EspacePage() {
                           </div>
                         </div>
 
-                        <div className="rounded-3xl border border-primary/15 bg-white p-5 shadow-sm">
-                          <div className="flex items-start justify-between gap-4">
-                            <div>
-                              <p className="text-xs font-bold uppercase tracking-[0.18em] text-primary">
-                                Plan d’amélioration
-                              </p>
-                              <p className="mt-2 text-lg font-semibold text-slate-900">
-                                Recommandations prioritaires
-                              </p>
-                            </div>
-                            <span className="rounded-full bg-primary-soft px-2.5 py-1 text-xs font-bold text-primary">
-                              {reportRecommendations.length}
+                        <div className="rounded-3xl border border-slate-200 bg-white p-5">
+                          <div className="flex items-center justify-between">
+                            <p className="text-sm font-semibold text-slate-800">Correspondance ISO 27001</p>
+                            <span className="rounded-full bg-primary-soft px-2.5 py-1 text-xs font-semibold text-primary">
+                              {isoCoveredCount}/{isoCoverage.length} contrôles couverts
                             </span>
                           </div>
-                          {reportRecommendations.length === 0 ? (
-                            <p className="mt-4 rounded-2xl bg-slate-50 p-4 text-sm text-slate-500">
-                              Aucune recommandation prioritaire pour les réponses enregistrées.
-                            </p>
-                          ) : (
-                            <ul className="mt-5 space-y-3 text-sm text-slate-600">
-                              {reportRecommendations.map((item, index) => (
-                                <li
-                                  key={item.question}
-                                  className="rounded-2xl border border-slate-100 bg-slate-50/80 p-4"
+                          <div className="mt-4 max-h-64 space-y-2 overflow-y-auto pr-1">
+                            {isoCoverage.map((item) => (
+                              <div
+                                key={item.code + item.question}
+                                className="flex items-start justify-between gap-3 rounded-2xl border border-slate-100 bg-slate-50 p-3 text-xs"
+                              >
+                                <span className="text-slate-600">
+                                  <span className="font-semibold text-slate-800">ISO 27001 {item.code}</span>
+                                  {" — "}
+                                  {item.title}
+                                  <span className="mt-0.5 block text-[11px] text-slate-400">
+                                    NIST CSF {item.nistCode} — {item.nistTitle}
+                                  </span>
+                                </span>
+                                <span
+                                  className={`shrink-0 rounded-full px-2 py-0.5 font-semibold ${item.covered ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700"}`}
                                 >
-                                  <div className="flex items-start gap-3">
-                                    <span className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-primary text-xs font-bold text-primary-foreground">
-                                      {String(index + 1).padStart(2, "0")}
-                                    </span>
-                                    <div>
-                                      <p className="font-semibold text-slate-800">
-                                        {item.category}
-                                      </p>
-                                      <p className="mt-1 text-xs font-medium text-primary">
-                                        Niveau obtenu : {item.level}/3
-                                      </p>
-                                      <p className="mt-2 leading-6">{item.recommendation}</p>
-                                    </div>
-                                  </div>
-                                </li>
-                              ))}
-                            </ul>
-                          )}
+                                  {item.covered ? "Couvert" : "À renforcer"}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
                         </div>
                       </div>
                     </div>
