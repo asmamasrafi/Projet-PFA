@@ -2107,7 +2107,7 @@ function EspacePage() {
                         </div>
                       </div>
 
-                                            <div className="space-y-4">
+                      <div className="space-y-4">
                         <div className="rounded-3xl border border-primary/15 bg-white p-5 shadow-sm">
                           <div className="flex items-start justify-between gap-4">
                             <div>
@@ -2187,36 +2187,46 @@ function EspacePage() {
                           </div>
                         </div>
 
-                        <div className="rounded-3xl border border-slate-200 bg-white p-5">
-                          <div className="flex items-center justify-between">
-                            <p className="text-sm font-semibold text-slate-800">Correspondance ISO 27001</p>
-                            <span className="rounded-full bg-primary-soft px-2.5 py-1 text-xs font-semibold text-primary">
-                              {isoCoveredCount}/{isoCoverage.length} contrôles couverts
-                            </span>
-                          </div>
-                          <div className="mt-4 max-h-64 space-y-2 overflow-y-auto pr-1">
-                            {isoCoverage.map((item) => (
-                              <div
-                                key={item.code + item.question}
-                                className="flex items-start justify-between gap-3 rounded-2xl border border-slate-100 bg-slate-50 p-3 text-xs"
-                              >
-                                <span className="text-slate-600">
-                                  <span className="font-semibold text-slate-800">ISO 27001 {item.code}</span>
-                                  {" — "}
-                                  {item.title}
-                                  <span className="mt-0.5 block text-[11px] text-slate-400">
-                                    NIST CSF {item.nistCode} — {item.nistTitle}
-                                  </span>
-                                </span>
-                                <span
-                                  className={`shrink-0 rounded-full px-2 py-0.5 font-semibold ${item.covered ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700"}`}
-                                >
-                                  {item.covered ? "Couvert" : "À renforcer"}
-                                </span>
-                              </div>
-                            ))}
-                          </div>
+                        
+                      </div>
+                    </div>
+                    
+                    <div className="mt-6 rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+                      <div className="flex flex-wrap items-center justify-between gap-3">
+                        <div>
+                          <p className="text-xs font-bold uppercase tracking-[0.18em] text-primary">
+                            Cadre normatif
+                          </p>
+                          <h3 className="mt-2 text-xl font-semibold text-slate-900">
+                            Correspondance ISO 27001 & NIST CSF
+                          </h3>
                         </div>
+                        <span className="rounded-full bg-primary-soft px-3 py-1.5 text-sm font-semibold text-primary">
+                          {isoCoveredCount}/{isoCoverage.length} contrôles couverts
+                        </span>
+                      </div>
+                      <div className="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+                        {isoCoverage.map((item) => (
+                          <div
+                            key={item.code + item.question}
+                            className="rounded-2xl border border-slate-100 bg-slate-50 p-4"
+                          >
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="text-sm font-semibold text-slate-800">
+                                ISO 27001 {item.code}
+                              </span>
+                              <span
+                                className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-semibold ${item.covered ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700"}`}
+                              >
+                                {item.covered ? "Couvert" : "À renforcer"}
+                              </span>
+                            </div>
+                            <p className="mt-2 text-sm text-slate-600">{item.title}</p>
+                            <p className="mt-3 text-xs font-medium text-slate-400">
+                              NIST CSF {item.nistCode} — {item.nistTitle}
+                            </p>
+                          </div>
+                        ))}
                       </div>
                     </div>
                   </div>

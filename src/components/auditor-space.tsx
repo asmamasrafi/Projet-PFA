@@ -27,7 +27,7 @@ import {
 import { supabase } from "@/integrations/supabase/client";
 
 type AuditorTab = "overview" | "missions" | "companies" | "reports" | "profile";
-type MissionStatus = "À planifier" | "En cours" | "À valider" | "Clôturée";
+type MissionStatus = "À planifier" | "En cours" | "À valider" | "Clôtur e";
 
 type Mission = {
   id: string;
