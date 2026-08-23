@@ -36,6 +36,8 @@ type Mission = {
   size: string;
   region: string;
   auditorNote: string;
+  domains: DomainScore[];
+  recommendations: Recommendation[];
   status: MissionStatus;
   progress: number;
   due: string;
@@ -59,7 +61,88 @@ const statusStyles: Record<MissionStatus, string> = {
   "À valider": "bg-violet-50 text-violet-700 ring-violet-200",
   Clôturée: "bg-emerald-50 text-emerald-700 ring-emerald-200",
 };
+const recommendationsByIndex: Record<number, string> = {
+  6: "Rédigez un document simple listant les règles de sécurité de base et partagez-le avec tous les employés.",
+  7: "Désignez une personne responsable de la sécurité informatique, même à temps partiel.",
+  8: "Faites l'inventaire de tout votre matériel et vos logiciels, et tenez-le à jour.",
+  9: "Prenez le temps, une fois par an, d'évaluer les risques informatiques de l'entreprise.",
+  10: "Donnez à chaque employé un compte individuel : évitez les comptes partagés.",
+  11: "Mettez en place des règles claires sur les mots de passe (complexité, renouvellement régulier).",
+  12: "Retirez systématiquement les accès informatiques d'un employé dès son départ.",
+  13: "Séparez le réseau Wi-Fi des visiteurs de celui des employés, et protégez les deux par un mot de passe.",
+  14: "Installez un antivirus à jour sur tous les postes de travail.",
+  15: "Organisez une session annuelle de sensibilisation aux risques informatiques.",
+  16: "Formez vos employés à reconnaître les emails suspects et les tentatives de phishing.",
+  17: "Contrôlez l'accès physique aux locaux où se trouvent vos ordinateurs et serveurs.",
+  18: "Restreignez l'accès aux données confidentielles (clients, RH) à un nombre limité de personnes.",
+  19: "Mettez en place une sauvegarde régulière de vos données importantes.",
+  20: "Conservez une copie de vos sauvegardes ailleurs que sur le poste ou serveur principal.",
+  21: "Rédigez une procédure simple expliquant quoi faire en cas d'incident informatique.",
+  22: "Préparez un plan de secours pour continuer à fonctionner en cas de panne majeure.",
+  23: "Vérifiez que votre entreprise respecte la loi 09-08 sur la protection des données personnelles.",
+};
 
+const categoryLabels: Record<string, string> = {
+  "Contexte de l'entreprise": "Contexte et exposition aux risques",
+  "Contexte et exposition aux risques": "Contexte et exposition aux risques",
+  "Gouvernance et organisation": "Gouvernance et organisation",
+  "Accès, mots de passe et réseau": "Accès, mots de passe et réseau",
+  "Sensibilisation et sécurité humaine": "Sensibilisation et sécurité humaine",
+  "Sauvegarde, incidents et conformité": "Sauvegarde, incidents et conformité",
+};
+
+function normalizeCategory(category: string) {
+  return categoryLabels[category] ?? category;
+}
+function formatAuditorName(firstName: string, lastName: string) {
+  const trimmedFirst = firstName.trim();
+  const capitalizedFirst = trimmedFirst
+    ? trimmedFirst.charAt(0).toUpperCase() + trimmedFirst.slice(1).toLowerCase()
+    : "";
+  const upperLast = lastName.trim().toUpperCase();
+  return `${capitalizedFirst} ${upperLast}`.trim();
+}
+type DomainScore = { name: string; score: number };
+type Recommendation = { question: string; recommendation: string };
+
+function computeDomainsAndRecommendations(
+  auditId: string,
+  answerRows: { audit_id: string; question_id: string; score: number | null }[],
+  questionById: Map<string, { axis: string; question: string; noted: boolean; sort_order: number }>,
+): { domains: DomainScore[]; recommendations: Recommendation[] } {
+  const categoryScores = new Map<string, number[]>();
+  const candidates: { question: string; recommendation: string; level: number }[] = [];
+
+  answerRows
+    .filter((answer) => answer.audit_id === auditId)
+    .forEach((answer) => {
+      const question = questionById.get(answer.question_id);
+      if (!question || !question.noted || answer.score === null) return;
+      const normalized = normalizeCategory(question.axis);
+      const scores = categoryScores.get(normalized) ?? [];
+      scores.push(answer.score);
+      categoryScores.set(normalized, scores);
+
+      const recommendation = recommendationsByIndex[question.sort_order - 1];
+      if (recommendation) {
+        candidates.push({ question: question.question, recommendation, level: answer.score });
+      }
+    });
+
+  const domains = Array.from(categoryScores.entries()).map(([name, scores]) => ({
+    name,
+    score: Math.round((scores.reduce((total, score) => total + score, 0) / (scores.length * 3)) * 100),
+  }));
+
+  candidates.sort((left, right) => left.level - right.level);
+  const priorityCandidates = candidates.filter((candidate) => candidate.level < 3);
+  const selected = priorityCandidates.slice(0, 5);
+  if (selected.length < 3) {
+    selected.push(...candidates.filter((candidate) => !selected.includes(candidate)).slice(0, 3 - selected.length));
+  }
+
+  return { domains, recommendations: selected.slice(0, 5) };
+}
 const riskStyles = {
   Faible: "text-emerald-700",
   Modéré: "text-amber-700",
@@ -116,21 +199,22 @@ export function AuditorSpace({ email, onLogout }: { email: string | null; onLogo
         supabase.from("profiles").select("first_name, last_name").eq("id", user.id).maybeSingle(),
         supabase.from("auditor_profiles").select("entity, verified").eq("user_id", user.id).maybeSingle(),
       ]);
-      const fullName = `${profile?.first_name ?? ""} ${profile?.last_name ?? ""}`.trim();
+      const fullName = formatAuditorName(profile?.first_name ?? "", profile?.last_name ?? "");
       if (active) {
         setAuditorName(fullName || "Auditeur CyberAudit");
         setAuditorEntity(auditorProfile?.entity || "Cabinet auditeur");
         setAuditorVerified(Boolean(auditorProfile?.verified));
       }
 
-      const [{ data: companies, error: companiesError }, { data: audits, error: auditsError }, { data: answers }, { data: notesRows }] = await Promise.all([
+      const [{ data: companies, error: companiesError }, { data: audits, error: auditsError }, { data: answers }, { data: notesRows }, { data: questionRows }] = await Promise.all([
         supabase.from("companies").select("id, name, sector, size, region, updated_at").order("name"),
         supabase
           .from("audits")
           .select("id, company_id, status, score, updated_at, submitted_at")
           .order("updated_at", { ascending: false }),
-        supabase.from("audit_answers").select("audit_id"),
+        supabase.from("audit_answers").select("audit_id, question_id, score"),
         supabase.from("audit_notes").select("audit_id, note"),
+        supabase.from("audit_questions").select("id, axis, question, noted, sort_order"),
       ]);
 
       if (auditsError) {
@@ -155,6 +239,7 @@ export function AuditorSpace({ email, onLogout }: { email: string | null; onLogo
         answersByAudit.set(answer.audit_id, (answersByAudit.get(answer.audit_id) ?? 0) + 1);
       });
       const noteByAudit = new Map((notesRows ?? []).map((row) => [row.audit_id, row.note]));
+      const questionById = new Map((questionRows ?? []).map((question) => [question.id, question]));
       const formattedMissions = (audits ?? []).map((audit) => {
         const company = companyById.get(audit.company_id);
         const answerCount = answersByAudit.get(audit.id) ?? 0;
@@ -181,7 +266,7 @@ export function AuditorSpace({ email, onLogout }: { email: string | null; onLogo
           progress,
           due: new Intl.DateTimeFormat("fr-FR", { day: "2-digit", month: "short", year: "numeric" }).format(new Date(date)),
           score,
-          auditorNote: noteByAudit.get(audit.id) ?? "", 
+          auditorNote: noteByAudit.get(audit.id) ?? "", ...computeDomainsAndRecommendations(audit.id, answers ?? [], questionById), 
           risk,
           contact: "Compte PME",
           updated: `Mis à jour le ${new Intl.DateTimeFormat("fr-FR", { day: "2-digit", month: "short" }).format(new Date(audit.updated_at))}`,
@@ -199,7 +284,9 @@ export function AuditorSpace({ email, onLogout }: { email: string | null; onLogo
           progress: 0,
           due: "À planifier",
           score: null,
-          auditorNote: "", 
+          auditorNote: "",
+          domains: [],
+          recommendations: [],
           risk: "Modéré" as const,
           contact: "Compte PME",
           updated: `Entreprise mise à jour le ${new Intl.DateTimeFormat("fr-FR", { day: "2-digit", month: "short" }).format(new Date(company.updated_at))}`,
@@ -225,7 +312,7 @@ export function AuditorSpace({ email, onLogout }: { email: string | null; onLogo
         `${mission.company} ${mission.id} ${mission.sector}`.toLowerCase().includes(normalized);
       return matchesQuery && (statusFilter === "Toutes" || mission.status === statusFilter);
     });
-  }, [query, statusFilter]);
+  },  [missions, query, statusFilter]);
 
   function selectTab(tab: AuditorTab) {
     setActiveTab(tab);
@@ -417,9 +504,7 @@ export function AuditorSpace({ email, onLogout }: { email: string | null; onLogo
               <CompanyList missions={missions} onSelect={openMission} />
             )}
             {activeTab === "reports" && <Reports missions={missions} onSelect={openMission} />}
-            {activeTab === "profile" && (
-              <Profile email={email} name={auditorName} entity={auditorEntity} verified={auditorVerified} />
-            )}
+            {activeTab === "profile" && <Profile email={email} />}
           </main>
         </div>
       </div>
@@ -511,12 +596,30 @@ function Overview({
               Toutes les missions <ArrowRight className="size-4" />
             </button>
           </div>
-          <div className="mt-6 space-y-3">
-            {missions.length === 0 ? (
-              <p className="rounded-2xl bg-slate-50 p-4 text-sm text-slate-500">
-                Aucune PME ou aucun audit n'est encore enregistré.
-              </p>
-            ) : missions.slice(0, 3).map((mission) => (
+                   <div className="mt-6 space-y-3">
+            {(() => {
+              const priorityMissions = missions
+                .filter((mission) => mission.status !== "Clôturée" && mission.company !== "PME non renseignée")
+                .sort((a, b) => {
+                  const weight: Record<MissionStatus, number> = {
+                    "À valider": 0,
+                    "En cours": 1,
+                    "À planifier": 2,
+                    Clôturée: 3,
+                  };
+                  return weight[a.status] - weight[b.status];
+                })
+                .slice(0, 3);
+
+              if (priorityMissions.length === 0) {
+                return (
+                  <p className="rounded-2xl bg-slate-50 p-4 text-sm text-slate-500">
+                    Aucune mission active pour le moment — tous les dossiers sont clôturés ou aucun audit n'est encore enregistré.
+                  </p>
+                );
+              }
+
+              return priorityMissions.map((mission) => (
               <button
                 key={mission.id}
                 type="button"
@@ -550,8 +653,9 @@ function Overview({
                   </span>
                 </span>
                 <ChevronRight className="size-4 text-slate-300 transition group-hover:text-primary" />
-              </button>
-            ))}
+            </button>
+              ));
+            })()}
           </div>
         </div>
         <div className="rounded-2xl bg-primary p-6 text-primary-foreground shadow-soft">
@@ -638,7 +742,9 @@ function Stat({
         <span className={`flex size-10 items-center justify-center rounded-xl ${tones[tone]}`}>
           <Icon className="size-5" />
         </span>
-        <span className="text-xs text-slate-400">Août 2026</span>
+          <span className="text-xs text-slate-400">
+          {new Intl.DateTimeFormat("fr-FR", { month: "long", year: "numeric" }).format(new Date())}
+        </span>
       </div>
       <p className="mt-5 text-sm text-slate-500">{label}</p>
       <p className="mt-1 text-3xl font-semibold tracking-tight">{value}</p>
@@ -695,13 +801,7 @@ function MissionList({
             Pilotez vos évaluations et gardez chaque livrable sous contrôle.
           </p>
         </div>
-        <button
-          type="button"
-          className="inline-flex items-center justify-center gap-2 rounded-2xl bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground shadow-soft transition hover:-translate-y-0.5 hover:shadow-lift"
-        >
-          <ClipboardCheck className="size-4" />
-          Nouvelle mission
-        </button>
+
       </div>
       <div className="flex flex-col gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:flex-row">
         <label className="relative flex-1">
@@ -893,17 +993,66 @@ function Reports({ missions, onSelect }: { missions: Mission[]; onSelect: (missi
   );
 }
 
-function Profile({
-  email,
-  name,
-  entity,
-  verified,
-}: {
-  email: string | null;
-  name: string;
-  entity: string;
-  verified: boolean;
-}) {
+function Profile({ email }: { email: string | null }) {
+  const [userId, setUserId] = useState<string | null>(null);
+  const [firstName, setFirstName] = useState("");
+  const [lastName, setLastName] = useState("");
+  const [entity, setEntity] = useState("");
+  const [verified, setVerified] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    async function load() {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (!user || !active) return;
+      setUserId(user.id);
+      const [{ data: profile }, { data: auditorProfile }] = await Promise.all([
+        supabase.from("profiles").select("first_name, last_name").eq("id", user.id).maybeSingle(),
+        supabase.from("auditor_profiles").select("entity, verified").eq("user_id", user.id).maybeSingle(),
+      ]);
+      if (!active) return;
+      setFirstName(profile?.first_name ?? "");
+      setLastName(profile?.last_name ?? "");
+      setEntity(auditorProfile?.entity ?? "");
+      setVerified(Boolean(auditorProfile?.verified));
+    }
+    void load();
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  async function saveProfile() {
+    if (!userId) return;
+    setSaving(true);
+    setMessage(null);
+    const [{ error: profileError }, { error: auditorError }] = await Promise.all([
+      supabase.from("profiles").update({ first_name: firstName.trim(), last_name: lastName.trim() }).eq("id", userId),
+      supabase.from("auditor_profiles").update({ entity: entity.trim() }).eq("user_id", userId),
+    ]);
+    setSaving(false);
+    if (profileError || auditorError) {
+      setMessage("Une erreur est survenue, réessayez.");
+    } else {
+      setMessage("Profil mis à jour avec succès.");
+      setEditing(false);
+    }
+  }
+
+  const fullName = formatAuditorName(firstName, lastName);
+  const initials =
+    (fullName || email || "AU")
+      .split(/[\s@._-]+/)
+      .filter(Boolean)
+      .slice(0, 2)
+      .map((part) => part[0]?.toUpperCase())
+      .join("") || "AU";
+
   return (
     <div className="max-w-3xl space-y-5">
       <div>
@@ -915,29 +1064,90 @@ function Profile({
       <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
         <div className="flex flex-col gap-4 border-b border-slate-100 pb-6 sm:flex-row sm:items-center">
           <span className="flex size-16 items-center justify-center rounded-2xl bg-primary-soft text-xl font-bold text-primary">
-            AM
+            {initials}
           </span>
           <div>
-            <h3 className="text-lg font-semibold">{name}</h3>
+            <h3 className="text-lg font-semibold">{fullName || "Auditeur CyberAudit"}</h3>
             <p className="text-sm text-slate-500">{email ?? "Compte auditeur"}</p>
           </div>
-          <span className={`sm:ml-auto inline-flex w-fit items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold ${verified ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700"}`}>
+          <span
+            className={`sm:ml-auto inline-flex w-fit items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold ${verified ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700"}`}
+          >
             <CheckCircle2 className="size-3.5" /> {verified ? "Profil vérifié" : "Profil en vérification"}
           </span>
         </div>
+
+        {message && (
+          <p className="mt-4 rounded-xl bg-primary-soft px-4 py-2 text-sm text-primary">{message}</p>
+        )}
+
         <div className="mt-6 grid gap-4 sm:grid-cols-2">
-          <ProfileField label="Prénom et nom" value={name} />
-          <ProfileField label="Organisme" value={entity} />
-          <ProfileField label="Fonction" value="Auditeur cybersécurité" />
-          <ProfileField label="Email professionnel" value={email ?? "Non renseigné"} />
+          {editing ? (
+            <>
+              <label className="block">
+                <span className="text-xs text-slate-500">Prénom</span>
+                <input
+                  value={firstName}
+                  onChange={(event) => setFirstName(event.target.value)}
+                  className="mt-1 w-full rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm outline-none focus:border-primary focus:ring-4 focus:ring-primary/15"
+                />
+              </label>
+              <label className="block">
+                <span className="text-xs text-slate-500">Nom</span>
+                <input
+                  value={lastName}
+                  onChange={(event) => setLastName(event.target.value)}
+                  className="mt-1 w-full rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm outline-none focus:border-primary focus:ring-4 focus:ring-primary/15"
+                />
+              </label>
+              <label className="block">
+                <span className="text-xs text-slate-500">Organisme</span>
+                <input
+                  value={entity}
+                  onChange={(event) => setEntity(event.target.value)}
+                  className="mt-1 w-full rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm outline-none focus:border-primary focus:ring-4 focus:ring-primary/15"
+                />
+              </label>
+              <ProfileField label="Email professionnel" value={email ?? "Non renseigné"} />
+            </>
+          ) : (
+            <>
+              <ProfileField label="Prénom et nom" value={fullName || "Non renseigné"} />
+              <ProfileField label="Organisme" value={entity || "Non renseigné"} />
+              <ProfileField label="Fonction" value="Auditeur cybersécurité" />
+              <ProfileField label="Email professionnel" value={email ?? "Non renseigné"} />
+            </>
+          )}
         </div>
-        <button
-          type="button"
-          className="mt-6 inline-flex items-center gap-2 rounded-2xl bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground shadow-soft"
-        >
-          <Settings className="size-4" />
-          Modifier mes informations
-        </button>
+
+        {editing ? (
+          <div className="mt-6 flex gap-3">
+            <button
+              type="button"
+              onClick={saveProfile}
+              disabled={saving}
+              className="inline-flex items-center gap-2 rounded-2xl bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground shadow-soft disabled:opacity-50"
+            >
+              {saving ? "Enregistrement..." : "Enregistrer"}
+            </button>
+            <button
+              type="button"
+              onClick={() => setEditing(false)}
+              className="rounded-2xl border border-slate-200 px-4 py-2.5 text-sm font-medium text-slate-600"
+            >
+              Annuler
+            </button>
+          </div>
+        ) : (
+          <button
+            type="button"
+            onClick={() => setEditing(true)}
+            className="mt-6 inline-flex items-center gap-2 rounded-2xl bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground shadow-soft"
+          >
+            <Settings className="size-4" />
+            Modifier mes informations
+          </button>
+        )}
       </section>
     </div>
   );
@@ -1031,7 +1241,7 @@ function MissionDrawer({
             />
           </div>
         </div>
-               <div className="mt-7 rounded-xl border border-amber-200 bg-amber-50 p-4">
+        <div className="mt-7 rounded-xl border border-amber-200 bg-amber-50 p-4">
           <p className="text-xs font-bold uppercase tracking-wider text-amber-700">
             Point d'attention
           </p>
@@ -1045,6 +1255,39 @@ function MissionDrawer({
                   : `Bon niveau de maturité (${mission.score}%) : le dossier peut être validé.`}
           </p>
         </div>
+                {mission.domains.length > 0 && (
+          <div className="mt-7">
+            <p className="text-sm font-semibold">Détail par domaine</p>
+            <div className="mt-3 space-y-2">
+              {mission.domains.map((domain) => (
+                <div key={domain.name} className="flex items-center gap-3">
+                  <span className="w-48 shrink-0 text-xs text-slate-500">{domain.name}</span>
+                  <span className="h-2 flex-1 rounded-full bg-slate-100">
+                    <span
+                      className="block h-2 rounded-full bg-primary"
+                      style={{ width: `${domain.score}%` }}
+                    />
+                  </span>
+                  <span className="w-10 shrink-0 text-right text-xs font-semibold">{domain.score}%</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {mission.recommendations.length > 0 && (
+          <div className="mt-7">
+            <p className="text-sm font-semibold">Recommandations (vues par la PME)</p>
+            <ul className="mt-3 space-y-2">
+              {mission.recommendations.map((item) => (
+                <li key={item.question} className="rounded-xl bg-slate-50 p-3 text-sm">
+                  <p className="text-xs text-slate-500">{item.question}</p>
+                  <p className="mt-1 text-slate-700">{item.recommendation}</p>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
         <label className="mt-7 block">
           <span className="text-sm font-semibold">Notes de suivi</span>
           <textarea
@@ -1057,7 +1300,7 @@ function MissionDrawer({
             className="mt-2 w-full resize-none rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm outline-none focus:border-primary focus:ring-4 focus:ring-primary/15"
           />
         </label>
-        <button
+               <button
           type="button"
           onClick={onSave}
           disabled={!canSaveNote}
@@ -1066,6 +1309,18 @@ function MissionDrawer({
           {saved ? <CheckCircle2 className="size-4" /> : <Archive className="size-4" />}
           {saved ? "Note enregistrée" : "Enregistrer la note"}
         </button>
+
+        {mission.status === "À valider" && (
+          <button
+            type="button"
+            onClick={onValidate}
+            className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-2xl border-2 border-emerald-600 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-700 hover:bg-emerald-100"
+          >
+            <CheckCircle2 className="size-4" />
+            Valider l'audit et clôturer le dossier
+          </button>
+        )}
+
         <button
           type="button"
           onClick={onClose}
@@ -1131,7 +1386,34 @@ function generateMissionReport(mission: Mission, mode: "view" | "download") {
   const wrappedAttention = doc.splitTextToSize(attentionText, pageWidth - margin * 2);
   doc.text(wrappedAttention, margin, y);
   y += wrappedAttention.length * 6 + 8;
+    if (mission.domains.length > 0) {
+    doc.setFontSize(12);
+    doc.setFont("helvetica", "bold");
+    doc.text("Détail par domaine", margin, y);
+    y += 7;
+    doc.setFontSize(11);
+    doc.setFont("helvetica", "normal");
+    mission.domains.forEach((domain) => {
+      doc.text(`${domain.name} : ${domain.score}%`, margin, y);
+      y += 6;
+    });
+    y += 4;
+  }
 
+  if (mission.recommendations.length > 0) {
+    doc.setFontSize(12);
+    doc.setFont("helvetica", "bold");
+    doc.text("Recommandations", margin, y);
+    y += 7;
+    doc.setFontSize(11);
+    doc.setFont("helvetica", "normal");
+    mission.recommendations.forEach((item) => {
+      const wrapped = doc.splitTextToSize(`• ${item.recommendation}`, pageWidth - margin * 2);
+      doc.text(wrapped, margin, y);
+      y += wrapped.length * 6 + 2;
+    });
+    y += 4;
+  }
   if (mission.auditorNote) {
     doc.setFontSize(12);
     doc.setFont("helvetica", "bold");
