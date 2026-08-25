@@ -508,6 +508,7 @@ function EspacePage() {
   const [auditError, setAuditError] = useState<string | null>(null);
   const [reportGenerated, setReportGenerated] = useState(false);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
+  const [notifOpen, setNotifOpen] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -799,7 +800,30 @@ function EspacePage() {
   const progressPercent = totalQuestions
     ? Math.min(100, Math.round((answeredCount / totalQuestions) * 100))
     : 0;
-
+     const notifItems = [
+    ...reportRecommendations.map((item) => ({
+      key: `reco-${item.question}`,
+      label: item.category,
+      detail: "Recommandation prioritaire",
+      action: () => setActiveTab("audit"),
+    })),
+    ...domains
+      .filter((domain) => domain.score < 50)
+      .map((domain) => ({
+        key: `domain-${domain.name}`,
+        label: domain.name,
+        detail: "Domaine critique (< 50%)",
+        action: () => setActiveTab("overview"),
+      })),
+    ...auditHistory
+      .filter((audit) => audit.status === "En cours")
+      .map((audit) => ({
+        key: audit.id,
+        label: audit.name,
+        detail: "Audit en cours",
+        action: () => setActiveTab("audit"),
+      })),
+  ];
   async function handleLogout() {
     await supabase.auth.signOut();
     void navigate({ to: "/" });
@@ -1386,19 +1410,59 @@ function EspacePage() {
               <div className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600">
                 {todayLabel}
               </div>
-              <button
-                type="button"
-                onClick={() => setActiveTab("audit")}
-                aria-label={`Notifications${alertCount ? `, ${alertCount} à traiter` : ", aucune alerte"}`}
-                className="relative rounded-xl border border-slate-200 bg-white p-2.5 text-slate-600 transition hover:border-primary/30 hover:text-primary"
-              >
-                <Bell className="h-4 w-4" />
-                {alertCount > 0 && (
-                  <span className="absolute -right-2 -top-2 flex min-h-5 min-w-5 items-center justify-center rounded-full bg-rose-500 px-1 text-[10px] font-bold text-white">
-                    {alertCount > 9 ? "9+" : alertCount}
-                  </span>
+                            <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => setNotifOpen((prev) => !prev)}
+                  aria-label={`Notifications${alertCount ? `, ${alertCount} à traiter` : ", aucune alerte"}`}
+                  className="relative rounded-xl border border-slate-200 bg-white p-2.5 text-slate-600 transition hover:border-primary/30 hover:text-primary"
+                >
+                  <Bell className="h-4 w-4" />
+                  {alertCount > 0 && (
+                    <span className="absolute -right-2 -top-2 flex min-h-5 min-w-5 items-center justify-center rounded-full bg-rose-500 px-1 text-[10px] font-bold text-white">
+                      {alertCount > 9 ? "9+" : alertCount}
+                    </span>
+                  )}
+                </button>
+                {notifOpen && (
+                  <div className="absolute right-0 z-30 mt-2 w-80 rounded-2xl border border-slate-200 bg-white p-2 shadow-xl">
+                    <p className="px-3 py-2 text-xs font-bold uppercase tracking-[0.14em] text-slate-400">
+                      À traiter
+                    </p>
+                    {notifItems.length === 0 ? (
+                      <p className="px-3 py-4 text-sm text-slate-500">Aucun point à traiter.</p>
+                    ) : (
+                      notifItems.slice(0, 6).map((item) => (
+                        <button
+                          key={item.key}
+                          type="button"
+                          onClick={() => {
+                            item.action();
+                            setNotifOpen(false);
+                          }}
+                          className="flex w-full items-center justify-between gap-3 rounded-xl px-3 py-2.5 text-left text-sm hover:bg-slate-50"
+                        >
+                          <span>
+                            <span className="block font-medium text-slate-800">{item.label}</span>
+                            <span className="block text-xs text-slate-500">{item.detail}</span>
+                          </span>
+                          <ChevronRight className="h-4 w-4 text-slate-300" />
+                        </button>
+                      ))
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setActiveTab("audit");
+                        setNotifOpen(false);
+                      }}
+                      className="mt-1 w-full rounded-xl px-3 py-2 text-center text-sm font-semibold text-primary hover:bg-primary-soft"
+                    >
+                      Voir l'audit
+                    </button>
+                  </div>
                 )}
-              </button>
+              </div>
               <span
                 className="hidden size-9 items-center justify-center rounded-full bg-primary-soft text-sm font-bold text-primary sm:flex"
                 title={profileName || companyName || "Compte PME"}

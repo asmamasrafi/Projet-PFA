@@ -207,6 +207,7 @@ const riskStyles = {
 export function AuditorSpace({ email, onLogout }: { email: string | null; onLogout: () => void }) {
   const [activeTab, setActiveTab] = useState<AuditorTab>("overview");
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [notifOpen, setNotifOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<MissionStatus | "Toutes">("Toutes");
   const [missions, setMissions] = useState<Mission[]>([]);
@@ -219,7 +220,7 @@ export function AuditorSpace({ email, onLogout }: { email: string | null; onLogo
   const [notes, setNotes] = useState("");
   const [auditorId, setAuditorId] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
-  const auditorInitials = (email ?? "AU")
+  const auditorInitials = (auditorName || email || "AU")
     .split(/[\s@._-]+/)
     .filter(Boolean)
     .slice(0, 2)
@@ -376,7 +377,10 @@ export function AuditorSpace({ email, onLogout }: { email: string | null; onLogo
   }
 
   const actionableCount = missions.filter((mission) => mission.status === "À valider" || mission.status === "En cours").length;
-    function openMission(mission: Mission) {
+  const notifItems = missions.filter(
+    (mission) => mission.status === "À valider" || mission.status === "En cours",
+  );
+  function openMission(mission: Mission) {
     setSelected(mission);
     setNotes(mission.auditorNote);
     setSaved(false);
@@ -520,19 +524,59 @@ export function AuditorSpace({ email, onLogout }: { email: string | null; onLogo
                 <CalendarDays className="size-4" />
                 {todayLabel}
               </div>
-              <button
-                type="button"
-                aria-label="Notifications"
-                onClick={() => selectTab("missions")}
-                className="relative rounded-xl border border-slate-200 bg-white p-2.5 text-slate-600 transition hover:border-primary/30 hover:text-primary"
-              >
-                <Bell className="size-4" />
-                {actionableCount > 0 && (
-                  <span className="absolute -right-2 -top-2 flex min-h-5 min-w-5 items-center justify-center rounded-full bg-rose-500 px-1 text-[10px] font-bold text-white">
-                    {actionableCount > 9 ? "9+" : actionableCount}
-                  </span>
+              <div className="relative">
+                <button
+                  type="button"
+                  aria-label="Notifications"
+                  onClick={() => setNotifOpen((prev) => !prev)}
+                  className="relative rounded-xl border border-slate-200 bg-white p-2.5 text-slate-600 transition hover:border-primary/30 hover:text-primary"
+                >
+                  <Bell className="size-4" />
+                  {actionableCount > 0 && (
+                    <span className="absolute -right-2 -top-2 flex min-h-5 min-w-5 items-center justify-center rounded-full bg-rose-500 px-1 text-[10px] font-bold text-white">
+                      {actionableCount > 9 ? "9+" : actionableCount}
+                    </span>
+                  )}
+                </button>
+                {notifOpen && (
+                  <div className="absolute right-0 z-30 mt-2 w-80 rounded-2xl border border-slate-200 bg-white p-2 shadow-xl">
+                    <p className="px-3 py-2 text-xs font-bold uppercase tracking-[0.14em] text-slate-400">
+                      À traiter
+                    </p>
+                    {notifItems.length === 0 ? (
+                      <p className="px-3 py-4 text-sm text-slate-500">Rien à traiter pour le moment.</p>
+                   ) : (
+                      notifItems.slice(0, 6).map((mission) => (
+                        <button
+                          key={mission.id}
+                          type="button"
+                          onClick={() => {
+                            openMission(mission);
+                            setNotifOpen(false);
+                          }}
+                          className="flex w-full items-center justify-between gap-3 rounded-xl px-3 py-2.5 text-left text-sm hover:bg-slate-50"
+                        >
+                          <span>
+                            <span className="block font-medium text-slate-800">{mission.company}</span>
+                            <span className="block text-xs text-slate-500">{mission.status}</span>
+                          </span>
+                          <ChevronRight className="size-4 text-slate-300" />
+                        </button>
+                      ))
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        selectTab("missions");
+                        setNotifOpen(false);
+                      }}
+                      className="mt-1 w-full rounded-xl px-3 py-2 text-center text-sm font-semibold text-primary hover:bg-primary-soft"
+                    >
+                      Voir toutes les missions
+                    </button>
+                  </div>
                 )}
-              </button>
+              </div>
               <span className="hidden size-9 items-center justify-center rounded-full bg-primary-soft text-sm font-bold text-primary sm:flex">
                 {auditorInitials}
               </span>
@@ -851,8 +895,7 @@ function MissionList({
       <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
         <div>
           <p className="text-xs font-bold uppercase tracking-[0.18em] text-primary">Portefeuille</p>
-          <h2 className="mt-2 text-2xl font-semibold">Mes missions</h2>
-          <p className="mt-1 text-sm text-slate-500">
+          <p className="mt-2 text-sm text-slate-500">
             Pilotez vos évaluations et gardez chaque livrable sous contrôle.
           </p>
         </div>
@@ -874,8 +917,6 @@ function MissionList({
           className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm outline-none focus:border-primary focus:ring-4 focus:ring-primary/15"
         >
           <option>Toutes</option>
-          <option>À planifier</option>
-          <option>En cours</option>
           <option>À valider</option>
           <option>Clôturée</option>
         </select>
@@ -947,8 +988,7 @@ function CompanyList({
         <p className="text-xs font-bold uppercase tracking-[0.18em] text-primary">
           Relation client
         </p>
-        <h2 className="mt-2 text-2xl font-semibold">Dossiers PME</h2>
-        <p className="mt-1 text-sm text-slate-500">
+        <p className="mt-2 text-sm text-slate-500">
           Retrouvez les entreprises accompagnées et leur dernière activité.
         </p>
       </div>
@@ -990,8 +1030,7 @@ function Reports({ missions, onSelect }: { missions: Mission[]; onSelect: (missi
     <div className="space-y-5">
       <div>
         <p className="text-xs font-bold uppercase tracking-[0.18em] text-primary">Livrables</p>
-        <h2 className="mt-2 text-2xl font-semibold">Rapports d'audit</h2>
-        <p className="mt-1 text-sm text-slate-500">
+        <p className="mt-2 text-sm text-slate-500">
           Téléchargez et partagez les rapports finalisés avec vos clients.
         </p>
       </div>
